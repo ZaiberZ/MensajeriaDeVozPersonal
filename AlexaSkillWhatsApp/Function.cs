@@ -1,22 +1,28 @@
 using Amazon.Lambda.Core;
+using System.Text.Json;
 
 // Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
-namespace AlexaSkillWhatsApp
-{
-    public class Function
-    {
+namespace AlexaSkillWhatsApp;
 
-        /// <summary>
-        /// A simple function that takes a string and does a ToUpper
-        /// </summary>
-        /// <param name="input">The event for the Lambda function handler to process.</param>
-        /// <param name="context">The ILambdaContext that provides methods for logging and describing the Lambda environment.</param>
-        /// <returns></returns>
-        public string FunctionHandler(string input, ILambdaContext context)
+public class Function
+{
+    public string FunctionHandler(JsonElement input, ILambdaContext context)
+    {
+        context.Logger.LogLine(input.ToString());
+
+        return """
         {
-            return input.ToUpper();
+          "version":"1.0",
+          "response":{
+            "outputSpeech":{
+              "type":"PlainText",
+              "text":"Hola, esta es mi primera respuesta."
+            },
+            "shouldEndSession":false
+          }
         }
+        """;
     }
 }
