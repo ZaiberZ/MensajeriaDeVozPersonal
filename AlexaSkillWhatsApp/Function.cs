@@ -18,14 +18,15 @@ public class Function
         var request = JsonSerializer.Deserialize<AlexaRequest>(input.GetRawText())!;
 
         // context.Logger.LogLine($"Tipo: {request.Request.Type}");
-        // context.Logger.LogLine($"Intent: {request.Request.Intent?.Name}");
+        context.Logger.LogLine($"Intent: {request.Request.Intent?.Name}");
+        context.Logger.LogLine(input.GetRawText());
 
         if (request == null)
         {
             return Helpers.AlexaResponseFactory.Speak("Ocurrió un error.");
         }
 
-        AlexaRequestRouter router = new AlexaRequestRouter();
+        AlexaRequestRouter router = new AlexaRequestRouter(context);
 
         return await router.Process(request);
     }

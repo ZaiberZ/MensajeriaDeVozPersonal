@@ -10,25 +10,23 @@ namespace AlexaSkillWhatsApp.Helpers;
 
 public static class AlexaResponseFactory
 {
-    public static string Speak(string text)
+    public static string Speak(string speech, ConversationState? state = null)
     {
-        var response = new AlexaResponse
+        var response = new
         {
-            Response = new ResponseBody
+            version = "1.0",
+            sessionAttributes = state?.ToSessionAttributes() ?? new Dictionary<string, object>(),
+            response = new
             {
-                ShouldEndSession = false,
-                OutputSpeech = new OutputSpeech
-                {
-                    Type = "PlainText",
-                    Text = text
-                }
+                outputSpeech = new { type = "PlainText", text = speech },
+                shouldEndSession = false
             }
         };
 
         return JsonSerializer.Serialize(response);
     }
 
-    public static string EndConversation(string text)
+    public static string EndConversation(string text, ConversationState? state = null)
     {
         var response = new AlexaResponse
         {

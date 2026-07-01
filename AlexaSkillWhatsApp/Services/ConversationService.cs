@@ -18,6 +18,27 @@ public class ConversationService
 
         return messages.Count;
     }
+    public async Task<List<MessageDto>> GetPendingMessagesAsync()
+    {
+        return await _firebase.GetPendingMessagesAsync();
+    }
+
+    public string ReadMessage(List<MessageDto> messages, int index)
+    {
+        if (!messages.Any())
+            return "No tienes mensajes nuevos.";
+
+        if (index >= messages.Count)
+            return "Ya no hay más mensajes.";
+
+        var message = messages[index];
+
+        return
+            $"Mensaje {index + 1} de {messages.Count}. " +
+            $"{message.Sender} dice. " +
+            $"{message.Text}. " +
+            "Puedes decir siguiente, responder, repetir o terminar.";
+    }
 
     public async Task<string> ReadFirstMessageAsync()
     {

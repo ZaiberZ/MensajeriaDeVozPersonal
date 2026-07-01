@@ -1,0 +1,118 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "mensajeria personal",
+      "intents": [
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "HelloWorldIntent",
+          "slots": [],
+          "samples": [
+            "hola",
+            "como estás",
+            "di hola mundo",
+            "di hola",
+            "hola mundo"
+          ]
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "LeerMensajesIntent",
+          "slots": [],
+          "samples": [
+            "hay mensajes",
+            "tengo mensajes",
+            "revisa mis mensajes",
+            "quiero escuchar mis mensajes",
+            "mensajes nuevos",
+            "leer mensajes nuevos",
+            "qué mensajes tengo",
+            "lee mis mensajes",
+            "leer mensajes"
+          ]
+        },
+        {
+          "name": "ResponderMensajeIntent",
+          "slots": [],
+          "samples": [
+            "escribir respuesta",
+            "enviar respuesta",
+            "responde",
+            "contestar",
+            "quiero responder",
+            "responder",
+            "responder mensaje",
+            "quiero contestar"
+          ]
+        },
+        {
+          "name": "SiguienteMensajeIntent",
+          "slots": [],
+          "samples": [
+            "siguiente",
+            "siguiente mensaje",
+            "continúa",
+            "continua",
+            "leer siguiente",
+            "otro",
+            "sigue",
+            "continúa con el siguiente"
+          ]
+        },
+        {
+          "name": "RepetirMensajeIntent",
+          "slots": [],
+          "samples": [
+            "repetir",
+            "repítelo",
+            "repite",
+            "repite el mensaje",
+            "otra vez",
+            "léelo otra vez"
+          ]
+        },
+        {
+          "name": "ConfirmarIntent",
+          "slots": [],
+          "samples": [
+            "sí",
+            "si",
+            "correcto",
+            "confirmar",
+            "envíalo",
+            "enviar",
+            "de acuerdo",
+            "adelante"
+          ]
+        },
+        {
+          "name": "CancelarRespuestaIntent",
+          "slots": [],
+          "samples": [
+            "cancelar",
+            "no",
+            "olvídalo",
+            "olvidalo",
+            "mejor no",
+            "detener respuesta"
+          ]
+        }
+      ],
+      "types": []
+    }
+  }
+}
