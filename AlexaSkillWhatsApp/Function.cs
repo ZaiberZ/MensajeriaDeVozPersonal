@@ -1,3 +1,5 @@
+using AlexaSkillWhatsApp.Models;
+using AlexaSkillWhatsApp.Services;
 using Amazon.Lambda.Core;
 using System.Text.Json;
 
@@ -10,19 +12,19 @@ public class Function
 {
     public string FunctionHandler(JsonElement input, ILambdaContext context)
     {
-        context.Logger.LogLine(input.ToString());
+        // context.Logger.LogLine(input.ToString());
+        // context.Logger.LogLine(input.GetRawText());
 
-        return """
+        var request = JsonSerializer.Deserialize<AlexaRequest>(input.GetRawText())!;
+
+        // context.Logger.LogLine($"Tipo: {request.Request.Type}");
+        // context.Logger.LogLine($"Intent: {request.Request.Intent?.Name}");
+
+        if (request == null)
         {
-          "version":"1.0",
-          "response":{
-            "outputSpeech":{
-              "type":"PlainText",
-              "text":"Hola, esta es mi primera respuesta."
-            },
-            "shouldEndSession":false
-          }
+            return Helpers.AlexaResponseFactory.Speak("Ocurrió un error.");
         }
-        """;
+
+        return AlexaRequestRouter.Process(request);
     }
 }
