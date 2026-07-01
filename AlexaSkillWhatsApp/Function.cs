@@ -10,7 +10,7 @@ namespace AlexaSkillWhatsApp;
 
 public class Function
 {
-    public string FunctionHandler(JsonElement input, ILambdaContext context)
+    public async Task<string> FunctionHandler(JsonElement input, ILambdaContext context)
     {
         // context.Logger.LogLine(input.ToString());
         // context.Logger.LogLine(input.GetRawText());
@@ -25,6 +25,8 @@ public class Function
             return Helpers.AlexaResponseFactory.Speak("Ocurrió un error.");
         }
 
-        return AlexaRequestRouter.Process(request);
+        AlexaRequestRouter router = new AlexaRequestRouter();
+
+        return await router.Process(request);
     }
 }
