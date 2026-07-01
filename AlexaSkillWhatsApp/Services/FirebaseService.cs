@@ -10,30 +10,45 @@ public class FirebaseService
 {
     private readonly HttpClient _httpClient;
     //    private readonly ILambdaContext _context;
+    private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public FirebaseService()
     {
         _httpClient = new HttpClient();
         //      _context = context;
     }
+    //public async Task<string> GetRawPendingMessagesAsync()
+    //{
+    //    return await _httpClient.GetStringAsync(            $"{FirebaseSettings.PendingMessages}.json");
+    //}
+
     public async Task<List<MessageDto>> GetPendingMessagesAsync()
     {
-        var json = await _httpClient.GetStringAsync($"{FirebaseSettings.PendingMessages}.json");
-
-        if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
-
-        //    _context.Logger.LogLine(json);
-
-        var dictionary = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json);
-
-        if (dictionary == null) return [];
-
-        foreach (var item in dictionary)
+        try
         {
-            item.Value.Id = item.Key;
-        }
+            var json = await _httpClient.GetStringAsync($"{FirebaseSettings.PendingMessages}.json");
 
-        return dictionary.Values.OrderBy(m => m.Date).ToList();
+            if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
+
+            //    _context.Logger.LogLine(json);
+
+            var dictionary = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json, _jsonOptions)!;
+
+            if (dictionary == null) return [];
+
+            foreach (var item in dictionary)
+            {
+                item.Value.Id = item.Key;
+            }
+
+            return dictionary.Values.OrderBy(m => m.Date).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+
+            return [];
+        }
     }
 
     public async Task AddOutgoingMessageAsync(MessageDto message)
