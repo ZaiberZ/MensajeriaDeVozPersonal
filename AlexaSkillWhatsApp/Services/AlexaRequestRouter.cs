@@ -155,19 +155,35 @@ public class AlexaRequestRouter
         var messages = await _conversation.GetPendingMessagesAsync();
 
         if (!messages.Any())
-            return AlexaResponseFactory.Speak("No tienes mensajes nuevos.");
+            return AlexaResponseFactory.Speak("No tienes mensajes nuevos.", state);
 
         if (state.CurrentMessageIndex < 0 || state.CurrentMessageIndex >= messages.Count)
-        {
             state.CurrentMessageIndex = 0;
-        }
-        if (!messages[state.CurrentMessageIndex].IsRead)
-        {
-            await _conversation.MarkAsReadAsync(state.CurrentMessageId);
-        }
-        var message = _conversation.ReadMessage(messages, state.CurrentMessageIndex);
 
-        return AlexaResponseFactory.Speak(message, state);
+        var currentMessage = messages[state.CurrentMessageIndex];
+
+        var conversationMessages = messages.Skip(state.CurrentMessageIndex).TakeWhile(m => m.ChatId == currentMessage.ChatId).ToList();
+
+        var lastMessage = conversationMessages.Last();
+
+        state.CurrentMessageId = lastMessage.Id;
+        state.CurrentChatId = lastMessage.ChatId;
+        state.CurrentPhone = lastMessage.Phone;
+        state.CurrentSender = lastMessage.Sender;
+        state.CurrentAccount = lastMessage.Account;
+        state.CurrentSource = lastMessage.Source;
+
+        foreach (var message in conversationMessages)
+        {
+            if (!message.IsRead)
+            {
+                await _conversation.MarkAsReadAsync(message.Id);
+            }
+        }
+
+        var response = _conversation.ReadConversationMessages(messages, state.CurrentMessageIndex);
+
+        return AlexaResponseFactory.Speak(response, state);
     }
     private string SaveReply(AlexaRequest request)
     {
