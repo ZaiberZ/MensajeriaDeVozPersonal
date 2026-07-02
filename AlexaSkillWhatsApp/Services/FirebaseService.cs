@@ -51,9 +51,18 @@ public class FirebaseService
         }
     }
 
-    public async Task AddOutgoingMessageAsync(MessageDto message)
+    public async Task SaveReplyAsync(string messageId, string sender, string account, string text)
     {
-        var json = JsonSerializer.Serialize(message);
+        var reply = new ReplyMessageDto
+        {
+            MessageId = messageId,
+            Sender = sender,
+            Account = account,
+            Text = text,
+            Date = DateTime.UtcNow
+        };
+
+        var json = JsonSerializer.Serialize(reply);
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -89,5 +98,18 @@ public class FirebaseService
         if (json == "null") return null;
 
         return JsonSerializer.Deserialize<string>(json);
+    }
+    public async Task MarkAsReadAsync(string messageId)
+    {
+        var body = JsonSerializer.Serialize(new { isRead = true });
+
+        var request = new HttpRequestMessage(HttpMethod.Patch, $"{FirebaseSettings.PendingMessages}/{messageId}.json")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+
+        var response = await _httpClient.SendAsync(request);
+
+        response.EnsureSuccessStatusCode();
     }
 }

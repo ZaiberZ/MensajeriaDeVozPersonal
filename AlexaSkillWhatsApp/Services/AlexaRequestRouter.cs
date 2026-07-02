@@ -1,6 +1,7 @@
 ﻿using AlexaSkillWhatsApp.Helpers;
 using AlexaSkillWhatsApp.Models;
 using Amazon.Lambda.Core;
+using System.Text;
 using System.Text.Json;
 
 namespace AlexaSkillWhatsApp.Services;
@@ -41,13 +42,17 @@ public class AlexaRequestRouter
     {
         return (request.Request.Intent?.Name) switch
         {
-            "HelloWorldIntent" => AlexaResponseFactory.Speak("Hola desde el Hub de Mensajería."),
             "LeerMensajesIntent" => await ReadMessages(),
-            "ResponderMensajeIntent" => AlexaResponseFactory.Speak("¿Qué deseas responder?"),
             "SiguienteMensajeIntent" => await NextMessage(request),
-            "AMAZON.HelpIntent" => AlexaResponseFactory.Speak("Puedes decir leer mensajes o responder mensaje."),
+            "RepetirMensajeIntent" => await RepeatMessage(request),
+            "LeerUltimosMensajesIntent" => await ReadLastMessages(request),
+            "ResponderMensajeIntent" => Reply(),
+            "DictadoRespuestaIntent" => SaveReply(request),
+            "ConfirmarIntent" => await ConfirmReply(request),
+            "CancelarRespuestaIntent" => CancelReply(),
+            "AMAZON.HelpIntent" => AlexaResponseFactory.Speak("Puedes decir leer mensajes o responder."),
             "AMAZON.StopIntent" or "AMAZON.CancelIntent" => AlexaResponseFactory.EndConversation("Hasta luego."),
-            _ => AlexaResponseFactory.Speak("No entendí ese comando."),
+            _ => AlexaResponseFactory.Speak("No entendí ese comando.")
         };
     }
 
@@ -63,6 +68,11 @@ public class AlexaRequestRouter
         state.CurrentMessageIndex = 0;
         state.CurrentMessageId = messages[0].Id;
         state.CurrentSender = messages[0].Sender;
+        state.CurrentAccount = messages[state.CurrentMessageIndex].Account;
+        if (!messages[state.CurrentMessageIndex].IsRead)
+        {
+            await conversation.MarkAsReadAsync(state.CurrentMessageId);
+        }
 
         return AlexaResponseFactory.Speak(conversation.ReadMessage(messages, 0), state);
     }
@@ -88,9 +98,107 @@ public class AlexaRequestRouter
         var message = conversation.ReadMessage(messages, state.CurrentMessageIndex);
 
         state.CurrentMessageId = messages[state.CurrentMessageIndex].Id;
-
         state.CurrentSender = messages[state.CurrentMessageIndex].Sender;
 
+        await conversation.MarkAsReadAsync(state.CurrentMessageId);
+
         return AlexaResponseFactory.Speak(message, state);
+    }
+
+    private string Reply()
+    {
+        var state = new ConversationState();
+
+        state.WaitingForReply = true;
+
+        return AlexaResponseFactory.Speak("¿Qué deseas responder?", state);
+    }
+    private async Task<string> RepeatMessage(AlexaRequest request)
+    {
+        var state = ConversationState.FromSession(request.Session?.Attributes);
+
+        var messages = await conversation.GetPendingMessagesAsync();
+
+        if (!messages.Any())
+            return AlexaResponseFactory.Speak("No tienes mensajes nuevos.");
+
+        if (state.CurrentMessageIndex < 0 || state.CurrentMessageIndex >= messages.Count)
+        {
+            state.CurrentMessageIndex = 0;
+        }
+        if (!messages[state.CurrentMessageIndex].IsRead)
+        {
+            await conversation.MarkAsReadAsync(state.CurrentMessageId);
+        }
+        var message = conversation.ReadMessage(messages, state.CurrentMessageIndex);
+
+        return AlexaResponseFactory.Speak(message, state);
+    }
+    private string SaveReply(AlexaRequest request)
+    {
+        var state = ConversationState.FromSession(request.Session.Attributes);
+
+        var slot = request.Request.Intent.Slots["respuesta"];
+
+        state.ReplyText = slot.Value;
+
+        state.WaitingForReply = false;
+
+        return AlexaResponseFactory.Speak($"Entendí. {state.ReplyText}. ¿Deseas enviarlo?", state);
+    }
+
+    private string CancelReply()
+    {
+        return AlexaResponseFactory.Speak("Se canceló la respuesta.");
+    }
+
+    private async Task<string> ConfirmReply(AlexaRequest request)
+    {
+        //var state = ConversationState.FromSession(request.Session.Attributes);
+
+        //await _firebase.SaveReplyAsync(state.CurrentMessageId, state.CurrentSender, state.ReplyText);
+
+        //return AlexaResponseFactory.Speak("Perfecto. Tu respuesta fue guardada.");
+
+        var state = ConversationState.FromSession(request.Session?.Attributes);
+
+        await conversation.SaveReplyAsync(state.CurrentMessageId, state.CurrentSender, state.CurrentAccount, state.ReplyText);
+
+        return AlexaResponseFactory.Speak("Perfecto. Tu respuesta fue guardada y será enviada.");
+    }
+
+    private async Task<string> ReadLastMessages(AlexaRequest request)
+    {
+        int cantidad = 5;
+
+        if (request.Request.Intent.Slots.TryGetValue("cantidad", out var slot))
+        {
+            int.TryParse(slot.Value, out cantidad);
+        }
+
+        cantidad = Math.Clamp(cantidad, 1, 5);
+
+        var messages = await conversation.GetLastMessagesAsync(cantidad);
+
+        if (!messages.Any())
+            return AlexaResponseFactory.Speak("No tienes mensajes.");
+
+        StringBuilder sb = new();
+
+        sb.Append($"Estos son los últimos {messages.Count} mensajes. ");
+
+        int index = 1;
+
+        foreach (var message in messages)
+        {
+            sb.Append(
+                $"Mensaje {index}. " +
+                $"{message.Sender} dice. " +
+                $"{message.Text}. ");
+
+            index++;
+        }
+
+        return AlexaResponseFactory.Speak(sb.ToString());
     }
 }

@@ -16,6 +16,9 @@ public class ConversationState
     public string CurrentMessageId { get; set; } = "";
 
     public string CurrentSender { get; set; } = "";
+    public string CurrentAccount { get; set; } = "";
+
+    public string ReplyText { get; set; } = "";
 
     public static ConversationState FromSession(        Dictionary<string, JsonElement>? attributes)
     {

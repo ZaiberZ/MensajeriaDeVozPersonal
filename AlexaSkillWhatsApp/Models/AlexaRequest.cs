@@ -49,4 +49,13 @@ public class IntentBody
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("slots")]
+    public Dictionary<string, AlexaSlot>? Slots { get; set; }
+}
+public class AlexaSlot
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+    [JsonPropertyName("value")]
+    public string Value { get; set; } = "";
 }

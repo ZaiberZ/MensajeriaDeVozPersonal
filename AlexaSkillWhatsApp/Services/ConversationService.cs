@@ -58,5 +58,23 @@ public class ConversationService
             $"{message.Text}. " +
             "Puedes decir siguiente, responder, repetir o terminar.";
     }
+    public async Task<List<MessageDto>> GetLastMessagesAsync(int count)
+    {
+        var messages = await GetPendingMessagesAsync();
+
+        return messages.TakeLast(count).ToList();
+    }
+    public async Task SaveReplyAsync(string messageId, string sender, string account, string text)
+    {
+        await _firebase.SaveReplyAsync(messageId, sender, account, text);
+    }
+    public async Task MarkAsReadAsync(string messageId)
+    {
+
+        // if (message.IsRead)             return;
+
+        await _firebase.MarkAsReadAsync(messageId);
+
+    }
 }
 
