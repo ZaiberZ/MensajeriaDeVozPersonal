@@ -361,3 +361,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# WhatsApp Gateway
+/WhatsAppGateway/data/auth/
+/WhatsAppGateway/.wwebjs_auth/
+/WhatsAppGateway/.wwebjs_cache/

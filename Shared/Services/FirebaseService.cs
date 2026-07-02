@@ -112,4 +112,41 @@ public class FirebaseService
 
         response.EnsureSuccessStatusCode();
     }
+
+    public async Task<List<ReplyMessageDto>> GetPendingRepliesAsync()
+    {
+        try
+        {
+            var json = await _httpClient.GetStringAsync($"{FirebaseSettings.OutgoingMessages}.json");
+
+            if (string.IsNullOrWhiteSpace(json) || json == "null")
+                return [];
+
+            var dictionary = JsonSerializer.Deserialize<Dictionary<string, ReplyMessageDto>>(json, _jsonOptions);
+
+            if (dictionary == null)
+                return [];
+
+            return dictionary.Values.OrderBy(r => r.Date).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+            return [];
+        }
+    }
+
+    public async Task SaveIncomingMessageAsync(MessageDto message)
+    {
+        var json = JsonSerializer.Serialize(message);
+
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        await _httpClient.PostAsync($"{FirebaseSettings.PendingMessages}.json", content);
+    }
+
+    public async Task DeleteReplyAsync(string replyId)
+    {
+        await _httpClient.DeleteAsync(            $"{FirebaseSettings.OutgoingMessages}/{replyId}.json");
+    }
 }

@@ -33,6 +33,7 @@ public class MessageDto
 
 public class ReplyMessageDto
 {
+    public string Id => MessageId;
     public string MessageId { get; set; } = "";
 
     public string Source { get; set; } = "";      // WhatsApp | Airbnb
