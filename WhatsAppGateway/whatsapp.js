@@ -2,6 +2,7 @@ const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
 
 let connected = false;
+let pendingMessages = [];
 
 const client = new Client({
 
@@ -64,6 +65,37 @@ client.on("disconnected", reason => {
 
 });
 
+client.on("message", async (message) => {
+    try {
+        // Ignorar mensajes vacíos o de grupos por ahora
+        if (!message.body || message.from.includes("@g.us")) {
+            return;
+        }
+
+        const contact = await message.getContact();
+
+        const incomingMessage = {
+            id: message.id.id,
+            sender: contact.pushname || contact.name || message.from,
+            phone: message.from.replace("@c.us", ""),
+            text: message.body,
+            source: "WhatsApp",
+            account: "Personal",
+            date: new Date().toISOString()
+        };
+
+        pendingMessages.push(incomingMessage);
+
+        console.log("Mensaje recibido:");
+        console.log(incomingMessage);
+
+    } catch (error) {
+
+        console.error("Error al procesar mensaje recibido:");
+        console.error(error);
+    }
+});
+
 function normalizePhone(phone) {
 
     return phone
@@ -91,9 +123,18 @@ async function sendMessage(phone, text) {
     await client.sendMessage(numberId._serialized, text);
 }
 
+function getPendingMessages() {
+    const messages = [...pendingMessages];
+    pendingMessages = [];
+
+    return messages;
+
+}
+
 module.exports = {
     initialize() { client.initialize(); },
     isConnected() { return connected; },
     getClient() { return client; },
-    sendMessage
+    sendMessage,
+    getPendingMessages
 };

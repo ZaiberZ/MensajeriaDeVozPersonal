@@ -1,3 +1,5 @@
+using AlexaSkillWhatsApp.Services;
+using Shared.Models;
 using VoiceMessaging.Worker.Services;
 
 namespace VoiceMessaging.Worker
@@ -15,15 +17,31 @@ namespace VoiceMessaging.Worker
         {
             var client = new HttpClient { BaseAddress = new Uri("http://localhost:3000") };
             var whatsApp = new WhatsAppService(client);
+            var firebase = new FirebaseService();
 
-            await whatsApp.SendMessageAsync("5217731542880", "Hola desde el Worker");
+            // await whatsApp.SendMessageAsync("5217731542880", "Hola desde el Worker");
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                if (_logger.IsEnabled(LogLevel.Information))
+                var messages = await whatsApp.GetMessagesAsync();
+
+                foreach (var message in messages)
                 {
-                    _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
+                    var firebaseMessage = new MessageDto
+                    {
+                        Source = message.Source,
+                        Account = message.Account,
+                        Sender = message.Sender,
+                        Text = message.Text,
+                        Date = message.Date,
+                        IsRead = false
+                    };
+
+                    await firebase.SaveIncomingMessageAsync(firebaseMessage);
+
+                    _logger.LogInformation("Mensaje guardado en Firebase: {sender} - {text}", firebaseMessage.Sender, firebaseMessage.Text);
                 }
+
                 await Task.Delay(1000, stoppingToken);
             }
 

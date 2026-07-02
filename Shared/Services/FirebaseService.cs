@@ -142,7 +142,9 @@ public class FirebaseService
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        await _httpClient.PostAsync($"{FirebaseSettings.PendingMessages}.json", content);
+        var response = await _httpClient.PostAsync($"{FirebaseSettings.PendingMessages}.json", content);
+
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task DeleteReplyAsync(string replyId)
