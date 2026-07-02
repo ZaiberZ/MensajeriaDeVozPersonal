@@ -46,7 +46,7 @@ public class AlexaRequestRouter
             "SiguienteMensajeIntent" => await NextMessage(request),
             "RepetirMensajeIntent" => await RepeatMessage(request),
             "LeerUltimosMensajesIntent" => await ReadLastMessages(request),
-            "ResponderMensajeIntent" => Reply(),
+            "ResponderMensajeIntent" => Reply(request),
             "DictadoRespuestaIntent" => SaveReply(request),
             "ConfirmarIntent" => await ConfirmReply(request),
             "CancelarRespuestaIntent" => CancelReply(),
@@ -69,6 +69,8 @@ public class AlexaRequestRouter
         state.CurrentMessageId = messages[0].Id;
         state.CurrentSender = messages[0].Sender;
         state.CurrentAccount = messages[state.CurrentMessageIndex].Account;
+        state.CurrentSource = messages[state.CurrentMessageIndex].Source;
+
         if (!messages[state.CurrentMessageIndex].IsRead)
         {
             await conversation.MarkAsReadAsync(state.CurrentMessageId);
@@ -79,11 +81,11 @@ public class AlexaRequestRouter
 
     private async Task<string> NextMessage(AlexaRequest request)
     {
-        context.Logger.LogLine(request.Session.Attributes == null ? "Sin SessionAttributes" : JsonSerializer.Serialize(request.Session.Attributes));
+        /// context.Logger.LogLine(request.Session.Attributes == null ? "Sin SessionAttributes" : JsonSerializer.Serialize(request.Session.Attributes));
 
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
-        context.Logger.LogLine($"CurrentMessageIndex: {state.CurrentMessageIndex}");
+        // context.Logger.LogLine($"CurrentMessageIndex: {state.CurrentMessageIndex}");
         state.CurrentMessageIndex++;
 
         var messages = await conversation.GetPendingMessagesAsync();
@@ -99,15 +101,16 @@ public class AlexaRequestRouter
 
         state.CurrentMessageId = messages[state.CurrentMessageIndex].Id;
         state.CurrentSender = messages[state.CurrentMessageIndex].Sender;
+        state.CurrentSource = messages[state.CurrentMessageIndex].Source;
 
         await conversation.MarkAsReadAsync(state.CurrentMessageId);
 
         return AlexaResponseFactory.Speak(message, state);
     }
 
-    private string Reply()
+    private string Reply(AlexaRequest request)
     {
-        var state = new ConversationState();
+        var state = ConversationState.FromSession(request.Session?.Attributes);
 
         state.WaitingForReply = true;
 
@@ -140,6 +143,8 @@ public class AlexaRequestRouter
 
         var slot = request.Request.Intent.Slots["respuesta"];
 
+        // context.Logger.LogLine($"Slots: " + JsonSerializer.Serialize(request.Request.Intent.Slots));
+
         state.ReplyText = slot.Value;
 
         state.WaitingForReply = false;
@@ -154,15 +159,11 @@ public class AlexaRequestRouter
 
     private async Task<string> ConfirmReply(AlexaRequest request)
     {
-        //var state = ConversationState.FromSession(request.Session.Attributes);
-
-        //await _firebase.SaveReplyAsync(state.CurrentMessageId, state.CurrentSender, state.ReplyText);
-
-        //return AlexaResponseFactory.Speak("Perfecto. Tu respuesta fue guardada.");
-
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
-        await conversation.SaveReplyAsync(state.CurrentMessageId, state.CurrentSender, state.CurrentAccount, state.ReplyText);
+        context.Logger.LogLine($"state: " + JsonSerializer.Serialize(state));
+
+        await conversation.SaveReplyAsync(state.CurrentMessageId, state.CurrentSender, state.CurrentAccount, state.CurrentSource, state.ReplyText);
 
         return AlexaResponseFactory.Speak("Perfecto. Tu respuesta fue guardada y será enviada.");
     }

@@ -64,9 +64,9 @@ public class ConversationService
 
         return messages.TakeLast(count).ToList();
     }
-    public async Task SaveReplyAsync(string messageId, string sender, string account, string text)
+    public async Task SaveReplyAsync(string messageId, string sender, string account, string currentSource, string text)
     {
-        await _firebase.SaveReplyAsync(messageId, sender, account, text);
+        await _firebase.SaveReplyAsync(messageId, sender, account, currentSource, text);
     }
     public async Task MarkAsReadAsync(string messageId)
     {

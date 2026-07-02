@@ -51,7 +51,7 @@ public class FirebaseService
         }
     }
 
-    public async Task SaveReplyAsync(string messageId, string sender, string account, string text)
+    public async Task SaveReplyAsync(string messageId, string sender, string account, string currentSource, string text)
     {
         var reply = new ReplyMessageDto
         {
@@ -59,7 +59,8 @@ public class FirebaseService
             Sender = sender,
             Account = account,
             Text = text,
-            Date = DateTime.UtcNow
+            Date = DateTime.UtcNow,
+            Source = currentSource
         };
 
         var json = JsonSerializer.Serialize(reply);
