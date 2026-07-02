@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace AlexaSkillWhatsApp.Models;
+namespace Shared.Models;
 
 public class MessageDto
 {

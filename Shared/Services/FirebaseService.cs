@@ -1,8 +1,7 @@
-﻿using AlexaSkillWhatsApp.Configuration;
-using AlexaSkillWhatsApp.Models;
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
-using Amazon.Lambda.Core;
+using Shared.Configuration;
+using Shared.Models;
 
 namespace AlexaSkillWhatsApp.Services;
 

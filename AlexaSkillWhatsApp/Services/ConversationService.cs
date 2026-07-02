@@ -1,10 +1,4 @@
-﻿using AlexaSkillWhatsApp.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json.Nodes;
-using System.Threading.Tasks;
+﻿using Shared.Models;
 
 namespace AlexaSkillWhatsApp.Services;
 
@@ -48,9 +42,6 @@ public class ConversationService
             return "No tienes mensajes nuevos.";
 
         var message = messages.First();
-
-        //Console.WriteLine(message.Text);
-        //Console.WriteLine(message);
 
         return
             $"Mensaje 1 de {messages.Count}. " +

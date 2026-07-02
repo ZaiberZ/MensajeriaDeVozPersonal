@@ -139,9 +139,9 @@ public class AlexaRequestRouter
     }
     private string SaveReply(AlexaRequest request)
     {
-        var state = ConversationState.FromSession(request.Session.Attributes);
+        var state = ConversationState.FromSession(request.Session!.Attributes);
 
-        var slot = request.Request.Intent.Slots["respuesta"];
+        var slot = request.Request.Intent!.Slots!["respuesta"];
 
         // context.Logger.LogLine($"Slots: " + JsonSerializer.Serialize(request.Request.Intent.Slots));
 
@@ -172,7 +172,7 @@ public class AlexaRequestRouter
     {
         int cantidad = 5;
 
-        if (request.Request.Intent.Slots.TryGetValue("cantidad", out var slot))
+        if (request.Request.Intent!.Slots!.TryGetValue("cantidad", out var slot))
         {
             int.TryParse(slot.Value, out cantidad);
         }

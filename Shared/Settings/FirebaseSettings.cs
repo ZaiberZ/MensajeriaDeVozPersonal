@@ -1,4 +1,4 @@
-﻿namespace AlexaSkillWhatsApp.Configuration;
+﻿namespace Shared.Configuration;
 
 public static class FirebaseSettings
 {
