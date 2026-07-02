@@ -15,6 +15,9 @@ public class ConversationState
 
     public string ReplyText { get; set; } = "";
     public string CurrentSource { get; set; } = "";
+    public string CurrentChatId { get; set; } = "";
+
+    public string CurrentPhone { get; set; } = "";
 
     public static ConversationState FromSession(Dictionary<string, JsonElement>? attributes)
     {
@@ -44,6 +47,12 @@ public class ConversationState
         if (attributes.TryGetValue(nameof(CurrentSource), out var source))
             state.CurrentSource = source.GetString() ?? "";
 
+        if (attributes.TryGetValue(nameof(CurrentChatId), out var currentChatId))
+            state.CurrentChatId = reply.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(CurrentPhone), out var currentPhone))
+            state.CurrentPhone = source.GetString() ?? "";
+
         return state;
     }
 
@@ -58,6 +67,8 @@ public class ConversationState
             { nameof(CurrentAccount), CurrentAccount },
             { nameof(ReplyText), ReplyText },
             { nameof(CurrentSource), CurrentSource },
+            { nameof(CurrentChatId), CurrentChatId },
+            { nameof(CurrentPhone), CurrentPhone },
         };
     }
 }

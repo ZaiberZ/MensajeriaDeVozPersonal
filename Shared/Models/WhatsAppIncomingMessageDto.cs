@@ -4,6 +4,8 @@ namespace Shared.Models;
 
 public class WhatsAppIncomingMessageDto
 {
+    [JsonPropertyName("chatId")]
+    public string ChatId { get; set; } = "";
     [JsonPropertyName("id")]
     public string Id { get; set; } = "";
 

@@ -35,12 +35,13 @@ namespace VoiceMessaging.Worker
                         {
                             var firebaseMessage = new MessageDto
                             {
+                                ChatId = message.ChatId,
+                                Phone = message.Phone,
                                 Source = message.Source,
                                 Account = message.Account,
                                 Sender = message.Sender,
                                 Text = message.Text,
                                 Date = message.Date,
-                                Phone = message.Phone,
                                 IsRead = false
                             };
 
@@ -65,7 +66,6 @@ namespace VoiceMessaging.Worker
                 #region SendMessages
                 try
                 {
-
                     var replies = await firebase.GetPendingRepliesAsync();
                     msgError = "";
 

@@ -45,16 +45,17 @@ public class WhatsAppService
         var request = new
         {
             account = reply.Account,
+            chatId = reply.ChatId,
             phone = reply.Phone,
             text = reply.Text
         };
 
         var response = await _httpClient.PostAsJsonAsync("/send", request);
 
-        var body = await response.Content.ReadAsStringAsync();
+        // var body = await response.Content.ReadAsStringAsync();
 
-        Console.WriteLine($"WhatsAppGateway status: {response.StatusCode}");
-        Console.WriteLine(body);
+        // Console.WriteLine($"WhatsAppGateway status: {response.StatusCode}");
+        // Console.WriteLine(body);
 
         response.EnsureSuccessStatusCode();
     }

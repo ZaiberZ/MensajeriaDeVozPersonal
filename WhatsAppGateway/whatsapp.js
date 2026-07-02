@@ -76,6 +76,7 @@ client.on("message", async (message) => {
 
         const incomingMessage = {
             id: message.id.id,
+            chatId: message.from,
             sender: contact.pushname || contact.name || message.from,
             phone: message.from.replace("@c.us", ""),
             text: message.body,
@@ -104,21 +105,21 @@ function normalizePhone(phone) {
 
 }
 
-async function sendMessage(phone, text) {
+async function sendMessage(chatId, phone, text) {
     if (!connected)
         throw new Error("WhatsApp no está conectado.");
 
-    phone = phone.replace(/\D/g, "");
+    if (chatId) {
+        await client.sendMessage(chatId, text);
+        return;
+    }
 
-    console.log(`Buscando número ${phone}`);
+    phone = phone.replace(/\D/g, "");
 
     const numberId = await client.getNumberId(phone);
 
     if (!numberId)
         throw new Error(`El número ${phone} no existe en WhatsApp.`);
-
-
-    console.log(numberId);
 
     await client.sendMessage(numberId._serialized, text);
 }
