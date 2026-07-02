@@ -1,11 +1,9 @@
 <Solution>
-  <Folder Name="/Solution Items/">
-    <File Path="WhatsAppGateway/package-lock.json" />
-    <File Path="WhatsAppGateway/package.json" />
-  </Folder>
   <Folder Name="/WhatsAppGateway/">
+    <File Path="WhatsAppGateway/app.js" />
     <File Path="WhatsAppGateway/package-lock.json" />
     <File Path="WhatsAppGateway/package.json" />
+    <File Path="WhatsAppGateway/whatsapp.js" />
   </Folder>
   <Project Path="AlexaSkillWhatsApp/AlexaSkillWhatsApp.csproj" />
   <Project Path="Shared/Shared.csproj" Id="d00df311-1365-4e7b-bd8d-0bc72476b644" />

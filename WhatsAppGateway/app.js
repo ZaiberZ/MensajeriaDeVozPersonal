@@ -30,3 +30,19 @@ app.listen(PORT, () => {
     console.log("");
 
 });
+
+app.post("/send", async (req, res) => {
+
+    try {
+        const { phone, text } = req.body;
+
+        await whatsapp.sendMessage(phone, text);
+
+        res.json({ success: true });
+    }
+    catch (error) {
+        console.error(error);
+
+        res.status(500).json({ success: false, error: error.message });
+    }
+});

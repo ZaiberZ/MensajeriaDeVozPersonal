@@ -64,8 +64,36 @@ client.on("disconnected", reason => {
 
 });
 
+function normalizePhone(phone) {
+
+    return phone
+        .replace(/\D/g, "")      // Elimina todo lo que no sea número
+        .replace(/^52(?=1\d{10}$)/, "521"); // Si aplica, ajusta números de México
+
+}
+
+async function sendMessage(phone, text) {
+    if (!connected)
+        throw new Error("WhatsApp no está conectado.");
+
+    phone = phone.replace(/\D/g, "");
+
+    console.log(`Buscando número ${phone}`);
+
+    const numberId = await client.getNumberId(phone);
+
+    if (!numberId)
+        throw new Error(`El número ${phone} no existe en WhatsApp.`);
+
+
+    console.log(numberId);
+
+    await client.sendMessage(numberId._serialized, text);
+}
+
 module.exports = {
     initialize() { client.initialize(); },
     isConnected() { return connected; },
-    getClient() { return client; }
+    getClient() { return client; },
+    sendMessage
 };

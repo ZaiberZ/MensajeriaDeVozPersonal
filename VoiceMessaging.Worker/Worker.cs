@@ -1,3 +1,5 @@
+using VoiceMessaging.Worker.Services;
+
 namespace VoiceMessaging.Worker
 {
     public class Worker : BackgroundService
@@ -11,6 +13,11 @@ namespace VoiceMessaging.Worker
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            var client = new HttpClient { BaseAddress = new Uri("http://localhost:3000") };
+            var whatsApp = new WhatsAppService(client);
+
+            await whatsApp.SendMessageAsync("5217731542880", "Hola desde el Worker");
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 if (_logger.IsEnabled(LogLevel.Information))
@@ -19,6 +26,7 @@ namespace VoiceMessaging.Worker
                 }
                 await Task.Delay(1000, stoppingToken);
             }
+
         }
     }
 }
