@@ -29,20 +29,18 @@ public class MessageDto
 
     [JsonPropertyName("isRead")]
     public bool IsRead { get; set; }
+    [JsonPropertyName("phone")]
+    public string Phone { get; set; } = "";
 }
 
 public class ReplyMessageDto
 {
-    public string Id => MessageId;
+    public string Id { get; set; } = string.Empty;
     public string MessageId { get; set; } = "";
-
     public string Source { get; set; } = "";      // WhatsApp | Airbnb
-
     public string Account { get; set; } = "";     // Personal | Trabajo | Host
-
     public string Sender { get; set; } = "";
-
     public string Text { get; set; } = "";
-
     public DateTime Date { get; set; } = DateTime.UtcNow;
+    public string Phone { get; set; } = "";
 }

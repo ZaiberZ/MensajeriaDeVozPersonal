@@ -1,49 +1,61 @@
 ﻿using Shared.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net.Http.Json;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace VoiceMessaging.Worker.Services
+namespace VoiceMessaging.Worker.Services;
+
+public class WhatsAppService
 {
-    public class WhatsAppService
+    private readonly HttpClient _httpClient;
+
+    public WhatsAppService(HttpClient http)
     {
-        private readonly HttpClient _httpClient;
+        _httpClient = http;
+    }
 
-        public WhatsAppService(HttpClient http)
+    public async Task SendMessageAsync(string phone, string text)
+    {
+        var request = new { phone, text };
+
+        var response = await _httpClient.PostAsJsonAsync("/send", request);
+
+        var body = await response.Content.ReadAsStringAsync();
+
+        Console.WriteLine($"Status: {response.StatusCode}");
+        Console.WriteLine(body);
+    }
+
+    public async Task<List<WhatsAppIncomingMessageDto>> GetMessagesAsync()
+    {
+        try
         {
-            _httpClient = http;
-        }
+            var messages = await _httpClient.GetFromJsonAsync<List<WhatsAppIncomingMessageDto>>("/messages");
 
-        public async Task SendMessageAsync(string phone, string text)
+            return messages ?? [];
+        }
+        catch (Exception ex)
         {
-            var request = new { phone, text };
+            Console.WriteLine("Error al leer mensajes desde WhatsAppGateway:");
+            Console.WriteLine(ex.Message);
 
-            var response = await _httpClient.PostAsJsonAsync("/send", request);
-
-            var body = await response.Content.ReadAsStringAsync();
-
-            Console.WriteLine($"Status: {response.StatusCode}");
-            Console.WriteLine(body);
+            return [];
         }
-
-        public async Task<List<WhatsAppIncomingMessageDto>> GetMessagesAsync()
+    }
+    public async Task SendReplyAsync(ReplyMessageDto reply)
+    {
+        var request = new
         {
-            try
-            {
-                var messages = await _httpClient.GetFromJsonAsync<List<WhatsAppIncomingMessageDto>>("/messages");
+            account = reply.Account,
+            phone = reply.Phone,
+            text = reply.Text
+        };
 
-                return messages ?? [];
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error al leer mensajes desde WhatsAppGateway:");
-                Console.WriteLine(ex.Message);
+        var response = await _httpClient.PostAsJsonAsync("/send", request);
 
-                return [];
-            }
-        }
+        var body = await response.Content.ReadAsStringAsync();
+
+        Console.WriteLine($"WhatsAppGateway status: {response.StatusCode}");
+        Console.WriteLine(body);
+
+        response.EnsureSuccessStatusCode();
     }
 }

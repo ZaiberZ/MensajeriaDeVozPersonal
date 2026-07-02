@@ -50,7 +50,7 @@ public class FirebaseService
         }
     }
 
-    public async Task SaveReplyAsync(string messageId, string sender, string account, string currentSource, string text)
+    public async Task SaveReplyAsync(string messageId, string sender, string account, string currentSource, string text, string phone)
     {
         var reply = new ReplyMessageDto
         {
@@ -59,14 +59,17 @@ public class FirebaseService
             Account = account,
             Text = text,
             Date = DateTime.UtcNow,
-            Source = currentSource
+            Source = currentSource,
+            Phone = phone
         };
 
         var json = JsonSerializer.Serialize(reply);
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        await _httpClient.PostAsync($"{FirebaseSettings.OutgoingMessages}.json", content);
+        var response = await _httpClient.PostAsync($"{FirebaseSettings.OutgoingMessages}.json", content);
+
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task DeletePendingMessageAsync(string messageId)
@@ -127,11 +130,15 @@ public class FirebaseService
             if (dictionary == null)
                 return [];
 
+            foreach (var item in dictionary) { item.Value.Id = item.Key; }
+
             return dictionary.Values.OrderBy(r => r.Date).ToList();
         }
         catch (Exception ex)
         {
+            Console.WriteLine("Error leyendo mensajes_por_enviar:");
             Console.WriteLine(ex);
+
             return [];
         }
     }
@@ -149,6 +156,8 @@ public class FirebaseService
 
     public async Task DeleteReplyAsync(string replyId)
     {
-        await _httpClient.DeleteAsync(            $"{FirebaseSettings.OutgoingMessages}/{replyId}.json");
+        var response = await _httpClient.DeleteAsync($"{FirebaseSettings.OutgoingMessages}/{replyId}.json");
+
+        response.EnsureSuccessStatusCode();
     }
 }
