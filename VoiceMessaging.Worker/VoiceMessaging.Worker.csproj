@@ -8,6 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="WhatsAppGateway\data\**" />
+    <Compile Remove="WhatsAppGateway\node_modules\**" />
+    <Content Remove="WhatsAppGateway\data\**" />
+    <Content Remove="WhatsAppGateway\node_modules\**" />
+    <EmbeddedResource Remove="WhatsAppGateway\data\**" />
+    <EmbeddedResource Remove="WhatsAppGateway\node_modules\**" />
+    <None Remove="WhatsAppGateway\data\**" />
+    <None Remove="WhatsAppGateway\node_modules\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Models\" />
   </ItemGroup>
 
@@ -18,5 +29,23 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Shared\Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="WhatsAppGateway\package-lock.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="WhatsAppGateway\package.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="WhatsAppGateway\app.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="WhatsAppGateway\whatsapp.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>
