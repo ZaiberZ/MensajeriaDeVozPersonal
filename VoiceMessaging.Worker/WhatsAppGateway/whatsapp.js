@@ -64,11 +64,10 @@ client.on("ready", async () => {
 
     console.log("WhatsApp conectado.");
 
-    if (!hasSession) {
-        console.log("Primera autenticación completada. Reiniciando Gateway...");
-
-        setTimeout(() => { process.exit(0); }, 3000);
-    }
+    // if (!hasSession) {
+        // console.log("Primera autenticación completada. Reiniciando Gateway...");
+        // setTimeout(() => { process.exit(0); }, 3000);
+    // }
 });
 
 client.on("authenticated", () => {
@@ -91,7 +90,7 @@ client.on("disconnected", reason => {
 
 client.on("message", async (message) => {
     try {
-        // Ignorar mensajes vacíos o de grupos por ahora
+        // Ignorar mensajes vacíos o de grupos por ahora, tambien de status
         if (!message.body || message.from.includes("@g.us") || message.from.includes("status@broadcast")) {
             return;
         }

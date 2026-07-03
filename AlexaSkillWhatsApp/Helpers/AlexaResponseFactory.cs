@@ -38,4 +38,28 @@ public static class AlexaResponseFactory
 
         return JsonSerializer.Serialize(response);
     }
+
+    public static string AskForPhonePermission()
+    {
+        var response = new
+        {
+            version = "1.0",
+            response = new
+            {
+                outputSpeech = new
+                {
+                    type = "PlainText",
+                    text = "Necesito permiso para consultar el teléfono de tu perfil. Revisa la tarjeta en la aplicación Alexa."
+                },
+                card = new
+                {
+                    type = "AskForPermissionsConsent",
+                    permissions = new[] { "alexa::profile:mobile_number:read" }
+                },
+                shouldEndSession = true
+            }
+        };
+
+        return JsonSerializer.Serialize(response);
+    }
 }

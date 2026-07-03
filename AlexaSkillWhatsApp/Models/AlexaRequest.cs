@@ -13,6 +13,24 @@ public class AlexaRequest
 
     [JsonPropertyName("request")]
     public RequestBody Request { get; set; } = new();
+
+    [JsonPropertyName("context")]
+    public AlexaContext Context { get; set; } = new();
+}
+
+public class AlexaContext
+{
+    [JsonPropertyName("System")]
+    public AlexaSystem System { get; set; } = new();
+}
+
+public class AlexaSystem
+{
+    [JsonPropertyName("apiAccessToken")]
+    public string ApiAccessToken { get; set; } = "";
+
+    [JsonPropertyName("apiEndpoint")]
+    public string ApiEndpoint { get; set; } = "https://api.amazonalexa.com";
 }
 
 public class Session

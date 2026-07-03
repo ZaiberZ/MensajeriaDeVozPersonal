@@ -1,6 +1,7 @@
 ﻿using AlexaSkillWhatsApp.Helpers;
 using AlexaSkillWhatsApp.Models;
 using Amazon.Lambda.Core;
+using Shared.Models;
 using System.Text;
 using System.Text.Json;
 
@@ -8,12 +9,13 @@ namespace AlexaSkillWhatsApp.Services;
 
 public class AlexaRequestRouter
 {
-    private readonly ConversationService _conversation = new ConversationService();
+    private readonly ConversationService _conversation;
     private readonly ILambdaContext context;
 
-    public AlexaRequestRouter(ILambdaContext context)
+    public AlexaRequestRouter(ILambdaContext context, UserDto user)
     {
         this.context = context;
+        _conversation = new ConversationService(user);
     }
 
     public async Task<string> Process(AlexaRequest request)

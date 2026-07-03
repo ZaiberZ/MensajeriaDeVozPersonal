@@ -4,7 +4,12 @@ namespace AlexaSkillWhatsApp.Services;
 
 public class ConversationService
 {
-    private readonly FirebaseService _firebase = new();
+    private readonly FirebaseService _firebase;
+
+    public ConversationService(UserDto user)
+    {
+        _firebase = new FirebaseService(user);
+    }
 
     public async Task<int> GetPendingMessagesCountAsync()
     {

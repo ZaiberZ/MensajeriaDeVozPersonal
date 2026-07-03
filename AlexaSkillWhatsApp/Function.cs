@@ -1,6 +1,7 @@
 using AlexaSkillWhatsApp.Models;
 using AlexaSkillWhatsApp.Services;
 using Amazon.Lambda.Core;
+using Shared.Models;
 using System.Text.Json;
 
 // Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
@@ -26,7 +27,24 @@ public class Function
             return Helpers.AlexaResponseFactory.Speak("Ocurrió un error.");
         }
 
-        AlexaRequestRouter router = new AlexaRequestRouter(context);
+        UserDto user;
+
+        try
+        {
+            user = await new AlexaCustomerProfileService().GetUserAsync(request);
+        }
+        catch (AlexaProfilePermissionException)
+        {
+            return Helpers.AlexaResponseFactory.AskForPhonePermission();
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"No se pudo obtener el perfil de Alexa: {ex}");
+            return Helpers.AlexaResponseFactory.Speak(
+                "No pude obtener el teléfono de tu perfil de Alexa. Revisa que tengas un número móvil configurado.");
+        }
+
+        AlexaRequestRouter router = new AlexaRequestRouter(context, user);
 
         return await router.Process(request);
     }

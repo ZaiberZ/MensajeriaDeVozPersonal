@@ -8,23 +8,25 @@ namespace AlexaSkillWhatsApp.Services;
 public class FirebaseService
 {
     private readonly HttpClient _httpClient;
-    private readonly UserDto? _user;
+    private readonly UserDto _user;
     private readonly string _userId;
     //    private readonly ILambdaContext _context;
     private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public FirebaseService()
-        : this(null)
+    public FirebaseService(UserDto user)
     {
-    }
+        ArgumentNullException.ThrowIfNull(user);
 
-    public FirebaseService(UserDto? user)
-    {
+        if (string.IsNullOrWhiteSpace(user.Phone))
+            throw new ArgumentException("El usuario debe tener un teléfono.", nameof(user));
+
         _httpClient = new HttpClient();
         _user = user;
-        _userId = string.IsNullOrWhiteSpace(user?.Phone)
-            ? FirebaseSettings.UserId
-            : user.Phone.Trim();
+        _userId = new string(user.Phone.Where(char.IsDigit).ToArray());
+
+        if (string.IsNullOrWhiteSpace(_userId))
+            throw new ArgumentException("El teléfono del usuario no contiene dígitos válidos.", nameof(user));
+
         //      _context = context;
     }
 
@@ -36,9 +38,6 @@ public class FirebaseService
 
     public async Task EnsureUserRegisteredAsync()
     {
-        if (_user == null || string.IsNullOrWhiteSpace(_user.Phone))
-            throw new InvalidOperationException("No se puede registrar el usuario en Firebase sin un teléfono.");
-
         var response = await _httpClient.GetAsync($"{UserPath}.json");
         response.EnsureSuccessStatusCode();
 
@@ -53,11 +52,6 @@ public class FirebaseService
 
         createResponse.EnsureSuccessStatusCode();
     }
-    //public async Task<string> GetRawPendingMessagesAsync()
-    //{
-    //    return await _httpClient.GetStringAsync(            $"{FirebaseSettings.PendingMessages}.json");
-    //}
-
     public async Task<List<MessageDto>> GetPendingMessagesAsync()
     {
         try
