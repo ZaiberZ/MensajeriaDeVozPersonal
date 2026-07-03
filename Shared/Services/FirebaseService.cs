@@ -60,18 +60,18 @@ public class FirebaseService
 
             if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
 
-            //    _context.Logger.LogLine(json);
+            var dictionary = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json, _jsonOptions);
 
-            var dictionary = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json, _jsonOptions)!;
+            if (dictionary == null || dictionary.Count == 0) return [];
 
-            if (dictionary == null) return [];
+            var messages = dictionary.Where(item => item.Value != null && !item.Value.IsRead)
+                .Select(item =>
+                {
+                    item.Value.Id = item.Key;
+                    return item.Value;
+                }).OrderBy(m => m.Date).ToList();
 
-            foreach (var item in dictionary)
-            {
-                item.Value.Id = item.Key;
-            }
-
-            return dictionary.Values.OrderBy(m => m.Date).ToList();
+            return messages;
         }
         catch (Exception ex)
         {

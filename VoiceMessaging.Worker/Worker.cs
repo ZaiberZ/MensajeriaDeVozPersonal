@@ -50,7 +50,6 @@ public class Worker : BackgroundService
         var firebase = new FirebaseService(_user);
         await firebase.EnsureUserRegisteredAsync();
         string msgError;
-        // await whatsApp.SendMessageAsync("5217731542880", "Hola desde el Worker");
 
         while (!stoppingToken.IsCancellationRequested)
         {

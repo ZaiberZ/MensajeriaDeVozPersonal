@@ -165,6 +165,15 @@ npm install
 
 # Compilar el proyecto
 
+## Publicar AlexaSkill
+
+```bash
+dotnet lambda deploy-function AlexaSkillWhatsApp
+
+-- dotnet publish -c Release -o ./publish
+```
+
+
 ## Worker
 
 ```bash
