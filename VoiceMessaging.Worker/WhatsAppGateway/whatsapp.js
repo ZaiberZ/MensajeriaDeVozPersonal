@@ -7,6 +7,7 @@ const authPath = path.join(__dirname, "data", "auth");
 const sessionPath = path.join(authPath, "session-personal");
 const readyFilePath = path.join(authPath, "personal.ready");
 const hasReadySession = fs.existsSync(readyFilePath);
+
 process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, ".cache");
 
 const hasSession = fs.existsSync(sessionPath);
@@ -17,23 +18,34 @@ let lastQr = null;
 let pendingMessages = [];
 const User = { "Phone": "", "FullName": "", "Email": "", IsRegistered: false };
 
+function getBundledChromePath() {
+    const cachePath = path.join(__dirname, ".cache", "chrome");
+
+    const versions = fs.readdirSync(cachePath);
+
+    for (const version of versions) {
+        const chromePath = path.join(cachePath, version, "chrome-win64", "chrome.exe");
+
+        if (fs.existsSync(chromePath))
+            return chromePath;
+    }
+
+    throw new Error("No se encontró chrome.exe dentro de .cache.");
+}
+
 
 const client = new Client({
-
-    authStrategy: new LocalAuth({
-        clientId: "personal",
-        dataPath: authPath
-    }),
+    authStrategy: new LocalAuth({ clientId: "personal", dataPath: authPath }),
 
     puppeteer: {
-        headless: true,
+        headless: hasReadySession,
+        executablePath: getBundledChromePath(),
         args: [
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage"
         ]
     }
-
 });
 function getQr() {
     return lastQr;
@@ -64,11 +76,8 @@ client.on("authenticated", () => {
 });
 
 client.on("auth_failure", message => {
-
     console.log("Error de autenticación.");
-
     console.log(message);
-
 });
 
 client.on("disconnected", reason => {

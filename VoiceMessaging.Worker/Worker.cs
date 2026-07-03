@@ -1,6 +1,7 @@
 using AlexaSkillWhatsApp.Services;
 using Shared.Models;
 using System.Diagnostics;
+using System.Net.Http.Json;
 using VoiceMessaging.Worker.Services;
 
 namespace VoiceMessaging.Worker;
@@ -13,6 +14,7 @@ public class Worker : BackgroundService
     private readonly string sourceName = "Voice Messaging Worker";
     private readonly string logName = "Application";
     private readonly EventLog eventLog;
+    private UserDto _user = new();
 
     public Worker(ILogger<Worker> logger, IConfiguration configuration)
     {
@@ -33,9 +35,20 @@ public class Worker : BackgroundService
     {
         await EnsureWhatsAppGatewayIsRunningAsync();
 
+        while (string.IsNullOrWhiteSpace(_user.Phone) && !stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("El gateway está disponible, pero el usuario todavía no tiene un teléfono registrado.");
+            await Task.Delay(3000, stoppingToken);
+            await IsGatewayRunningAsync();
+        }
+
+        if (stoppingToken.IsCancellationRequested)
+            return;
+
         var client = new HttpClient { BaseAddress = new Uri(_configuration["WhatsAppGateway:Url"]!) };
         var whatsApp = new WhatsAppService(client);
-        var firebase = new FirebaseService();
+        var firebase = new FirebaseService(_user);
+        await firebase.EnsureUserRegisteredAsync();
         string msgError;
         // await whatsApp.SendMessageAsync("5217731542880", "Hola desde el Worker");
 
@@ -174,7 +187,15 @@ public class Worker : BackgroundService
 
             var response = await httpClient.GetAsync("/status");
 
-            return response.IsSuccessStatusCode;
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var gatewayStatus = await response.Content.ReadFromJsonAsync<GatewayStatusDto>();
+
+            if (gatewayStatus?.User != null)
+                _user = gatewayStatus.User;
+
+            return true;
         }
         catch
         {
@@ -191,10 +212,12 @@ public class Worker : BackgroundService
         }
         try
         {
+            var logPath = Path.Combine(GatewayDirectory, "gateway.log");
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = "/C npm start >> gateway.log 2>&1",
+                Arguments = $"/C echo Iniciando Gateway... > \"{logPath}\" && npm start >> \"{logPath}\" 2>&1",
                 WorkingDirectory = GatewayDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true
@@ -202,8 +225,9 @@ public class Worker : BackgroundService
 
             Process.Start(startInfo);
 
+
             _logger.LogInformation("WhatsAppGateway iniciado con npm start. Ruta: {path}", GatewayDirectory);
-            eventLog.WriteEntry("\"WhatsAppGateway iniciado con npm start.", EventLogEntryType.Error);
+            eventLog.WriteEntry("\"WhatsAppGateway iniciado con npm start.", EventLogEntryType.Information);
         }
         catch (Exception e)
         {

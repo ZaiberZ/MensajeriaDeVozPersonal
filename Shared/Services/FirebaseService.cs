@@ -8,13 +8,50 @@ namespace AlexaSkillWhatsApp.Services;
 public class FirebaseService
 {
     private readonly HttpClient _httpClient;
+    private readonly UserDto? _user;
+    private readonly string _userId;
     //    private readonly ILambdaContext _context;
     private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public FirebaseService()
+        : this(null)
+    {
+    }
+
+    public FirebaseService(UserDto? user)
     {
         _httpClient = new HttpClient();
+        _user = user;
+        _userId = string.IsNullOrWhiteSpace(user?.Phone)
+            ? FirebaseSettings.UserId
+            : user.Phone.Trim();
         //      _context = context;
+    }
+
+    private string UserPath => FirebaseSettings.User(_userId);
+    private string PendingMessagesPath => FirebaseSettings.PendingMessagesFor(_userId);
+    private string OutgoingMessagesPath => FirebaseSettings.OutgoingMessagesFor(_userId);
+    private string CommandsPath => FirebaseSettings.CommandsFor(_userId);
+    private string StatusPath => FirebaseSettings.StatusFor(_userId);
+
+    public async Task EnsureUserRegisteredAsync()
+    {
+        if (_user == null || string.IsNullOrWhiteSpace(_user.Phone))
+            throw new InvalidOperationException("No se puede registrar el usuario en Firebase sin un teléfono.");
+
+        var response = await _httpClient.GetAsync($"{UserPath}.json");
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+
+        if (!string.IsNullOrWhiteSpace(json) && json != "null")
+            return;
+
+        var userJson = JsonSerializer.Serialize(_user);
+        var content = new StringContent(userJson, Encoding.UTF8, "application/json");
+        var createResponse = await _httpClient.PutAsync($"{UserPath}.json", content);
+
+        createResponse.EnsureSuccessStatusCode();
     }
     //public async Task<string> GetRawPendingMessagesAsync()
     //{
@@ -25,7 +62,7 @@ public class FirebaseService
     {
         try
         {
-            var json = await _httpClient.GetStringAsync($"{FirebaseSettings.PendingMessages}.json");
+            var json = await _httpClient.GetStringAsync($"{PendingMessagesPath}.json");
 
             if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
 
@@ -68,12 +105,12 @@ public class FirebaseService
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        await _httpClient.PostAsync($"{FirebaseSettings.OutgoingMessages}.json", content);
+        await _httpClient.PostAsync($"{OutgoingMessagesPath}.json", content);
     }
 
     public async Task DeletePendingMessageAsync(string messageId)
     {
-        await _httpClient.DeleteAsync($"{FirebaseSettings.PendingMessages}/{messageId}.json");
+        await _httpClient.DeleteAsync($"{PendingMessagesPath}/{messageId}.json");
     }
 
     public async Task SendCommandAsync(string command)
@@ -82,7 +119,7 @@ public class FirebaseService
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        await _httpClient.PutAsync($"{FirebaseSettings.Commands}/current.json", content);
+        await _httpClient.PutAsync($"{CommandsPath}/current.json", content);
     }
     public async Task UpdateStatusAsync(string property, object value)
     {
@@ -90,12 +127,12 @@ public class FirebaseService
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        await _httpClient.PutAsync($"{FirebaseSettings.Status}/{property}.json", content);
+        await _httpClient.PutAsync($"{StatusPath}/{property}.json", content);
     }
 
     public async Task<string?> GetStatusAsync(string property)
     {
-        var json = await _httpClient.GetStringAsync($"{FirebaseSettings.Status}/{property}.json");
+        var json = await _httpClient.GetStringAsync($"{StatusPath}/{property}.json");
 
         if (json == "null") return null;
 
@@ -105,7 +142,7 @@ public class FirebaseService
     {
         var body = JsonSerializer.Serialize(new { isRead = true });
 
-        var request = new HttpRequestMessage(HttpMethod.Patch, $"{FirebaseSettings.PendingMessages}/{messageId}.json")
+        var request = new HttpRequestMessage(HttpMethod.Patch, $"{PendingMessagesPath}/{messageId}.json")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json")
         };
@@ -119,7 +156,7 @@ public class FirebaseService
     {
         try
         {
-            var json = await _httpClient.GetStringAsync($"{FirebaseSettings.OutgoingMessages}.json");
+            var json = await _httpClient.GetStringAsync($"{OutgoingMessagesPath}.json");
 
             if (string.IsNullOrWhiteSpace(json) || json == "null")
                 return [];
@@ -148,14 +185,14 @@ public class FirebaseService
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync($"{FirebaseSettings.PendingMessages}.json", content);
+        var response = await _httpClient.PostAsync($"{PendingMessagesPath}.json", content);
 
         response.EnsureSuccessStatusCode();
     }
 
     public async Task DeleteReplyAsync(string replyId)
     {
-        var response = await _httpClient.DeleteAsync($"{FirebaseSettings.OutgoingMessages}/{replyId}.json");
+        var response = await _httpClient.DeleteAsync($"{OutgoingMessagesPath}/{replyId}.json");
 
         response.EnsureSuccessStatusCode();
     }

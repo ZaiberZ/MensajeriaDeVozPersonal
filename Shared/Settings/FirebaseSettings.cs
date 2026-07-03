@@ -6,11 +6,17 @@ public static class FirebaseSettings
 
     public const string UserId = "demo";
     public const string UserName = "Adrian";
-    public static string PendingMessages => $"{BaseUrl}/usuarios/{UserId}/mensajes_pendientes";
+    public static string User(string userId) => $"{BaseUrl}/usuarios/{userId}";
+    public static string PendingMessagesFor(string userId) => $"{User(userId)}/mensajes_pendientes";
+    public static string OutgoingMessagesFor(string userId) => $"{User(userId)}/mensajes_por_enviar";
+    public static string CommandsFor(string userId) => $"{User(userId)}/comandos";
+    public static string StatusFor(string userId) => $"{User(userId)}/estado";
 
-    public static string OutgoingMessages => $"{BaseUrl}/usuarios/{UserId}/mensajes_por_enviar";
+    public static string PendingMessages => PendingMessagesFor(UserId);
 
-    public static string Commands => $"{BaseUrl}/usuarios/{UserId}/comandos";
+    public static string OutgoingMessages => OutgoingMessagesFor(UserId);
 
-    public static string Status => $"{BaseUrl}/usuarios/{UserId}/estado";
+    public static string Commands => CommandsFor(UserId);
+
+    public static string Status => StatusFor(UserId);
 }
