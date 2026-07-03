@@ -7,6 +7,7 @@ const authPath = path.join(__dirname, "data", "auth");
 const sessionPath = path.join(authPath, "session-personal");
 const readyFilePath = path.join(authPath, "personal.ready");
 const hasReadySession = fs.existsSync(readyFilePath);
+process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, ".cache");
 
 const hasSession = fs.existsSync(sessionPath);
 
@@ -14,6 +15,7 @@ let initialized = false;
 let connected = false;
 let lastQr = null;
 let pendingMessages = [];
+const User = { "Phone": "", "FullName": "", "Email": "", IsRegistered: false };
 
 
 const client = new Client({
@@ -160,6 +162,11 @@ function saveUser(user) {
         Email: user.email
     };
 
+    User.Phone = user.phone;
+    User.FullName = user.fullName;
+    User.Email = user.email;
+    User.IsRegistered = true;
+
     fs.writeFileSync(appSettingsPath, JSON.stringify(appSettings, null, 2), "utf8");
 }
 
@@ -185,12 +192,30 @@ async function initialize() {
     }
 }
 
+function isConnected() {
+    const appSettingsPath = path.join(__dirname, "..", "appsettings.json");
+
+    if (!User.IsRegistered && fs.existsSync(appSettingsPath)) {
+        const appSettings = JSON.parse(fs.readFileSync(appSettingsPath, "utf8"));
+        const savedUser = appSettings.User;
+
+        if (savedUser?.Phone) {
+            User.Phone = savedUser.Phone;
+            User.FullName = savedUser.FullName;
+            User.Email = savedUser.Email;
+            User.IsRegistered = true;
+        }
+    }
+
+    return { connected, User };
+}
+
 module.exports = {
     initialize,
-    isConnected() { return connected; },
     getClient() { return client; },
     sendMessage,
     getPendingMessages,
     getQr,
-    saveUser
+    saveUser,
+    isConnected
 };

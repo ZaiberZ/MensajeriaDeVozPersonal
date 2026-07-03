@@ -22,7 +22,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/status", (req, res) => {
-    res.json({ connected: whatsapp.isConnected() });
+    res.json(whatsapp.isConnected());
 });
 
 const PORT = 3000;

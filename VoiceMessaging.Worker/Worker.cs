@@ -1,8 +1,7 @@
 using AlexaSkillWhatsApp.Services;
 using Shared.Models;
-using VoiceMessaging.Worker.Services;
 using System.Diagnostics;
-using System.Net.Http.Json;
+using VoiceMessaging.Worker.Services;
 
 namespace VoiceMessaging.Worker;
 
@@ -11,11 +10,23 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
+    private readonly string sourceName = "Voice Messaging Worker";
+    private readonly string logName = "Application";
+    private readonly EventLog eventLog;
 
     public Worker(ILogger<Worker> logger, IConfiguration configuration)
     {
         _logger = logger;
         _configuration = configuration;
+
+        // 1. Register source if it doesn't exist (Requires Admin Privileges)
+        if (!EventLog.SourceExists(sourceName))
+        {
+            EventLog.CreateEventSource(sourceName, logName);
+        }
+
+        eventLog = new EventLog(logName);
+        eventLog.Source = sourceName;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -178,18 +189,27 @@ public class Worker : BackgroundService
             _logger.LogError("No se encontró la carpeta WhatsAppGateway en: {path}", GatewayDirectory);
             return;
         }
-
-        var startInfo = new ProcessStartInfo
+        try
         {
-            FileName = "cmd.exe",
-            Arguments = "/C npm start >> gateway.log 2>&1",
-            WorkingDirectory = GatewayDirectory,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/C npm start >> gateway.log 2>&1",
+                WorkingDirectory = GatewayDirectory,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
 
-        Process.Start(startInfo);
+            Process.Start(startInfo);
 
-        _logger.LogInformation("WhatsAppGateway iniciado con npm start. Ruta: {path}", GatewayDirectory);
+            _logger.LogInformation("WhatsAppGateway iniciado con npm start. Ruta: {path}", GatewayDirectory);
+            eventLog.WriteEntry("\"WhatsAppGateway iniciado con npm start.", EventLogEntryType.Error);
+        }
+        catch (Exception e)
+        {
+            eventLog.WriteEntry(e.Message, EventLogEntryType.Error);
+            _logger.LogError("No se pudo iniciar WhatsAppGateway. Error: " + e.Message);
+        }
+
     }
 }

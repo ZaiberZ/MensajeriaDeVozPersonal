@@ -14,6 +14,7 @@ Source: "D:\Publish\VoiceMessaging\*"; DestDir: "{app}"; Flags: recursesubdirs i
 
 [Run]
 Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated
+Filename: "cmd.exe"; Parameters: "/C set PUPPETEER_CACHE_DIR=""{app}\WhatsAppGateway\.cache"" && npx puppeteer browsers install chrome"; WorkingDir: "{app}\WhatsAppGateway"; Flags: waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
 
