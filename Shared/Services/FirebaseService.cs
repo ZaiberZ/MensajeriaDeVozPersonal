@@ -152,17 +152,21 @@ public class FirebaseService
         {
             var json = await _httpClient.GetStringAsync($"{OutgoingMessagesPath}.json");
 
-            if (string.IsNullOrWhiteSpace(json) || json == "null")
-                return [];
+            if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
 
             var dictionary = JsonSerializer.Deserialize<Dictionary<string, ReplyMessageDto>>(json, _jsonOptions);
 
-            if (dictionary == null)
-                return [];
+            if (dictionary == null) return [];
 
-            foreach (var item in dictionary) { item.Value.Id = item.Key; }
+            var replies = dictionary.Where(item => item.Value != null && !string.IsNullOrWhiteSpace(item.Value.Phone))
+           .Select(item =>
+           {
+               item.Value.Id = item.Key;
+               return item.Value;
+           }).OrderBy(m => m.Date).ToList();
 
-            return dictionary.Values.OrderBy(r => r.Date).ToList();
+
+            return replies;
         }
         catch (Exception ex)
         {

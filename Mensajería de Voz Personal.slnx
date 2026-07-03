@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
+    <File Path="Installer/VoiceMessagingInstaller.iss" />
   </Folder>
   <Folder Name="/WhatsAppGateway/">
     <File Path="WhatsAppGateway/app.js" />

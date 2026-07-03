@@ -115,7 +115,7 @@ public class Worker : BackgroundService
 
                         if (string.IsNullOrWhiteSpace(reply.Phone))
                         {
-                            _logger.LogWarning("No se pudo enviar respuesta {id}. No tiene teléfono.", reply.Id);
+                            _logger.LogWarning("No se pudo enviar respuesta {id}. No tiene teléfono.", reply.Sender);
 
                             continue;
                         }
