@@ -5,6 +5,8 @@ const path = require("path");
 
 const authPath = path.join(__dirname, "data", "auth");
 const sessionPath = path.join(authPath, "session-personal");
+const readyFilePath = path.join(authPath, "personal.ready");
+const hasReadySession = fs.existsSync(readyFilePath);
 
 const hasSession = fs.existsSync(sessionPath);
 
@@ -22,7 +24,7 @@ const client = new Client({
     }),
 
     puppeteer: {
-        headless: hasSession,
+        headless: true,
         args: [
             "--no-sandbox",
             "--disable-setuid-sandbox",
@@ -36,7 +38,6 @@ function getQr() {
 }
 
 client.on("qr", async (qr) => {
-
     lastQr = await qrcode.toDataURL(qr);
 
     console.log("QR generado. Abre http://localhost:3000/qr para escanearlo.");
@@ -45,6 +46,7 @@ client.on("qr", async (qr) => {
 client.on("ready", async () => {
     connected = true;
     lastQr = null;
+    fs.writeFileSync(readyFilePath, new Date().toISOString(), "utf8");
 
     console.log("WhatsApp conectado.");
 
@@ -56,9 +58,7 @@ client.on("ready", async () => {
 });
 
 client.on("authenticated", () => {
-
     console.log("Sesión autenticada.");
-
 });
 
 client.on("auth_failure", message => {
@@ -74,7 +74,6 @@ client.on("disconnected", reason => {
     connected = false;
 
     console.log("WhatsApp desconectado.");
-
     console.log(reason);
 
 });
@@ -167,7 +166,6 @@ function saveUser(user) {
 async function initialize() {
 
     if (initialized) {
-        connected = true;
         console.log("WhatsApp ya fue inicializado.");
         return;
     }

@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 // const path = require("path");
 
@@ -6,7 +7,7 @@ const whatsapp = require("./whatsapp");
 
 const app = express();
 
-// app.use(express.static(__dirname));
+app.use(express.static(__dirname));
 app.use(cors());
 app.use(express.json());
 
@@ -96,13 +97,11 @@ app.get("/qr", (req, res) => {
 app.post("/setup-user", (req, res) => {
 
     try {
-
+        console.log("Guardando usuario...");
         whatsapp.saveUser(req.body);
 
-        res.json({
-            success: true
-        });
-
+        res.json({ success: true });
+        console.log("Usuario guardado");
     }
     catch (err) {
 

@@ -367,3 +367,4 @@ FodyWeavers.xsd
 /WhatsAppGateway/.wwebjs_cache/
 /VoiceMessaging.Worker/WhatsAppGateway/.wwebjs_cache
 /VoiceMessaging.Worker/WhatsAppGateway/data/auth/session-personal
+/VoiceMessaging.Worker/WhatsAppGateway/data/auth

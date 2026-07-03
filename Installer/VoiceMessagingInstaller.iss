@@ -17,8 +17,8 @@ Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGa
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
 
-;Filename: "{cmd}"; Parameters: "/C timeout /T 6 /NOBREAK"; Flags: runhidden waituntilterminated
-;Filename: "http://localhost:3000/qr"; Description: "Abrir página de autenticación de WhatsApp"; Flags: shellexec postinstall skipifsilent
+Filename: "{cmd}"; Parameters: "/C timeout /T 6 /NOBREAK"; Flags: runhidden waituntilterminated
+Filename: "http://localhost:3000/qr"; Description: "Abrir página de autenticación de WhatsApp"; Flags: shellexec postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop VoiceMessagingWorker"; Flags: runhidden
