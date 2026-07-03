@@ -12,15 +12,20 @@ PrivilegesRequired=admin
 [Files]
 Source: "D:\Publish\VoiceMessaging\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
-
 [Run]
-Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: runhidden waituntilterminated
+Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
+
+;Filename: "{cmd}"; Parameters: "/C timeout /T 6 /NOBREAK"; Flags: runhidden waituntilterminated
+;Filename: "http://localhost:3000/qr"; Description: "Abrir página de autenticación de WhatsApp"; Flags: shellexec postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop VoiceMessagingWorker"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "delete VoiceMessagingWorker"; Flags: runhidden
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"
 
 [Code]
 
@@ -28,7 +33,8 @@ function IsNodeInstalled(): Boolean;
 var
   ResultCode: Integer;
 begin
-  Result := Exec('cmd.exe', '/C node -v', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := Exec('cmd.exe','/C node -v','',SW_HIDE,ewWaitUntilTerminated,ResultCode);
+
   Result := Result and (ResultCode = 0);
 end;
 
@@ -42,7 +48,7 @@ begin
       mbError, MB_OK);
 
     Result := False;
-    exit;
+    Exit;
   end;
 
   Result := True;

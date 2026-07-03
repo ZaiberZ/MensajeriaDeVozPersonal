@@ -1,42 +1,58 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
+const fs = require("fs");
+const path = require("path");
 
+const authPath = path.join(__dirname, "data", "auth");
+const sessionPath = path.join(authPath, "session-personal");
+
+const hasSession = fs.existsSync(sessionPath);
+
+let initialized = false;
 let connected = false;
+let lastQr = null;
 let pendingMessages = [];
 
+
 const client = new Client({
-    authStrategy: new LocalAuth({ clientId: "personal", dataPath: "./data/auth" }),
+
+    authStrategy: new LocalAuth({
+        clientId: "personal",
+        dataPath: authPath
+    }),
+
     puppeteer: {
-        headless: true,    // Actualmente oculta el navegador
-        args: ["--no-sandbox", "--disable-setuid-sandbox"]
+        headless: hasSession,
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage"
+        ]
     }
+
 });
+function getQr() {
+    return lastQr;
+}
 
 client.on("qr", async (qr) => {
-    console.clear();
 
-    console.log("---------------------------------------");
-    console.log("Escanea este QR con WhatsApp");
-    console.log("---------------------------------------");
+    lastQr = await qrcode.toDataURL(qr);
 
-    const qrTerminal = await qrcode.toString(qr, {
-        type: "terminal",
-        small: true
-    });
-
-    console.log(qrTerminal);
-
+    console.log("QR generado. Abre http://localhost:3000/qr para escanearlo.");
 });
 
-client.on("ready", () => {
-
+client.on("ready", async () => {
     connected = true;
+    lastQr = null;
 
-    console.log("");
-    console.log("---------------------------------------");
     console.log("WhatsApp conectado.");
-    console.log("---------------------------------------");
 
+    if (!hasSession) {
+        console.log("Primera autenticación completada. Reiniciando Gateway...");
+
+        setTimeout(() => { process.exit(0); }, 3000);
+    }
 });
 
 client.on("authenticated", () => {
@@ -130,10 +146,53 @@ function getPendingMessages() {
 
 }
 
+function saveUser(user) {
+    const appSettingsPath = path.join(__dirname, "..", "appsettings.json");
+
+    if (!fs.existsSync(appSettingsPath)) {
+        throw new Error("No se encontró appsettings.json");
+    }
+
+    const appSettings = JSON.parse(fs.readFileSync(appSettingsPath, "utf8"));
+
+    appSettings.User = {
+        Phone: user.phone,
+        FullName: user.fullName,
+        Email: user.email
+    };
+
+    fs.writeFileSync(appSettingsPath, JSON.stringify(appSettings, null, 2), "utf8");
+}
+
+async function initialize() {
+
+    if (initialized) {
+        connected = true;
+        console.log("WhatsApp ya fue inicializado.");
+        return;
+    }
+
+    initialized = true;
+
+    console.log("Inicializando WhatsApp...");
+
+    try {
+        await client.initialize();
+    } catch (error) {
+        initialized = false;
+        connected = false;
+
+        console.error("Error inicializando WhatsApp:");
+        console.error(error);
+    }
+}
+
 module.exports = {
-    initialize() { client.initialize(); },
+    initialize,
     isConnected() { return connected; },
     getClient() { return client; },
     sendMessage,
-    getPendingMessages
+    getPendingMessages,
+    getQr,
+    saveUser
 };

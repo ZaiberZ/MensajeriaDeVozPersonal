@@ -30,6 +30,15 @@ public class Worker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            //if (!await IsGatewayRunningAsync())
+            //{
+            //    await EnsureWhatsAppGatewayIsRunningAsync();
+
+            //    await Task.Delay(5000, stoppingToken);
+
+            //    continue;
+            //}
+
             #region Save new messages
             try
             {
@@ -126,7 +135,7 @@ public class Worker : BackgroundService
 
         StartWhatsAppGateway();
 
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 200; i++)
         {
             await Task.Delay(3000);
 
@@ -164,19 +173,16 @@ public class Worker : BackgroundService
 
     private void StartWhatsAppGateway()
     {
-        var command = _configuration["WhatsAppGateway:Command"] ?? "node";
-        var arguments = _configuration["WhatsAppGateway:Arguments"] ?? "app.js";
-
-        if (string.IsNullOrWhiteSpace(GatewayDirectory))
+        if (!Directory.Exists(GatewayDirectory))
         {
-            _logger.LogError("WhatsAppGateway:Path no está configurado.");
+            _logger.LogError("No se encontró la carpeta WhatsAppGateway en: {path}", GatewayDirectory);
             return;
         }
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "node",
-            Arguments = "app.js",
+            FileName = "cmd.exe",
+            Arguments = "/C npm start >> gateway.log 2>&1",
             WorkingDirectory = GatewayDirectory,
             UseShellExecute = false,
             CreateNoWindow = true
@@ -184,6 +190,6 @@ public class Worker : BackgroundService
 
         Process.Start(startInfo);
 
-        _logger.LogInformation("Proceso WhatsAppGateway iniciado.");
+        _logger.LogInformation("WhatsAppGateway iniciado con npm start. Ruta: {path}", GatewayDirectory);
     }
 }
