@@ -12,6 +12,9 @@ PrivilegesRequired=admin
 [Files]
 Source: "D:\Publish\VoiceMessaging\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
+[Icons]
+Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/status"
+
 [Run]
 Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated
 Filename: "cmd.exe"; Parameters: "/C ""set PUPPETEER_CACHE_DIR={app}\WhatsAppGateway\.cache&& npx puppeteer browsers install chrome > chrome-install.log 2>&1"""; WorkingDir: "{app}\WhatsAppGateway"; Flags: waituntilterminated

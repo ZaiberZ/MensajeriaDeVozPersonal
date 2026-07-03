@@ -8,7 +8,8 @@ echo ================================
 set SOLUTION_DIR=%~dp0
 set WORKER_PROJECT=%SOLUTION_DIR%VoiceMessaging.Worker\VoiceMessaging.Worker.csproj
 set GATEWAY_DIR=%SOLUTION_DIR%WhatsAppGateway
-set PUBLISH_DIR=D:\Publish\VoiceMessaging
+set OUTPUT_DIR=D:\Publish
+set PUBLISH_DIR=%OUTPUT_DIR%\VoiceMessaging
 set INSTALLER_SCRIPT=%SOLUTION_DIR%Installer\VoiceMessagingInstaller.iss
 set INNO_COMPILER=C:\Users\cator\AppData\Local\Programs\Inno Setup 6\ISCC.exe
 
@@ -60,9 +61,19 @@ if errorlevel 1 (
 )
 
 echo.
+echo Eliminando carpeta temporal de publicacion...
+if exist "%PUBLISH_DIR%" rmdir /s /q "%PUBLISH_DIR%"
+
+if exist "%PUBLISH_DIR%" (
+    echo Advertencia: no fue posible eliminar "%PUBLISH_DIR%".
+)
+
+echo.
 echo ================================
 echo  Instalador generado correctamente
 echo ================================
+echo  Ubicacion: %OUTPUT_DIR%
 echo.
 
-pause
+start "" explorer.exe "%OUTPUT_DIR%"
+endlocal

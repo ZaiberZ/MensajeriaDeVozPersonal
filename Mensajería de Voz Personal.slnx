@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
+    <File Path="build-installer.bat" />
     <File Path="Installer/VoiceMessagingInstaller.iss" />
   </Folder>
   <Folder Name="/WhatsAppGateway/">
