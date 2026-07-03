@@ -37,7 +37,7 @@ public class Session
 {
     [JsonPropertyName("new")]
     public bool New { get; set; }
-    [JsonPropertyName("sessionid")]
+    [JsonPropertyName("sessionId")]
     public string SessionId { get; set; } = "";
     [JsonPropertyName("attributes")]
     public Dictionary<string, JsonElement>? Attributes { get; set; }
@@ -47,7 +47,7 @@ public class Session
 
 public class SessionUser
 {
-    [JsonPropertyName("userid")]
+    [JsonPropertyName("userId")]
     public string UserId { get; set; } = "";
 }
 

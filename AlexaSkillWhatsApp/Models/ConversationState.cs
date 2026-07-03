@@ -18,6 +18,8 @@ public class ConversationState
     public string CurrentChatId { get; set; } = "";
 
     public string CurrentPhone { get; set; } = "";
+    public string PendingUserPhone { get; set; } = "";
+    public bool WaitingForPhoneConfirmation { get; set; }
 
     public static ConversationState FromSession(Dictionary<string, JsonElement>? attributes)
     {
@@ -48,10 +50,16 @@ public class ConversationState
             state.CurrentSource = source.GetString() ?? "";
 
         if (attributes.TryGetValue(nameof(CurrentChatId), out var currentChatId))
-            state.CurrentChatId = reply.GetString() ?? "";
+            state.CurrentChatId = currentChatId.GetString() ?? "";
 
         if (attributes.TryGetValue(nameof(CurrentPhone), out var currentPhone))
-            state.CurrentPhone = source.GetString() ?? "";
+            state.CurrentPhone = currentPhone.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(PendingUserPhone), out var pendingUserPhone))
+            state.PendingUserPhone = pendingUserPhone.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(WaitingForPhoneConfirmation), out var waitingForPhoneConfirmation))
+            state.WaitingForPhoneConfirmation = waitingForPhoneConfirmation.GetBoolean();
 
         return state;
     }
@@ -69,6 +77,8 @@ public class ConversationState
             { nameof(CurrentSource), CurrentSource },
             { nameof(CurrentChatId), CurrentChatId },
             { nameof(CurrentPhone), CurrentPhone },
+            { nameof(PendingUserPhone), PendingUserPhone },
+            { nameof(WaitingForPhoneConfirmation), WaitingForPhoneConfirmation },
         };
     }
 }

@@ -2,6 +2,7 @@ using AlexaSkillWhatsApp.Configuration;
 using AlexaSkillWhatsApp.Models;
 using AlexaSkillWhatsApp.Services;
 using Amazon.Lambda.Core;
+using Shared.Models;
 using System.Text.Json;
 
 // Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
@@ -27,25 +28,31 @@ public class Function
             return Helpers.AlexaResponseFactory.Speak("Ocurrió un error.");
         }
 
-        var user = LambdaUserConfiguration.GetUser();
+        var alexaUserId = request.Session?.User.UserId ?? "";
+        var phoneService = new AlexaUserPhoneService();
+        var registrationHandler = new AlexaPhoneRegistrationHandler(phoneService);
+        var registrationResponse = await registrationHandler.TryHandleAsync(request);
+
+        if (registrationResponse != null)
+            return registrationResponse;
+
+        UserDto? user = null;
+        var savedPhone = await phoneService.GetPhoneAsync(alexaUserId);
+
+        if (!string.IsNullOrWhiteSpace(savedPhone))
+        {
+            user = new UserDto
+            {
+                Phone = savedPhone,
+                IsRegistered = true
+            };
+        }
+
+        user ??= LambdaUserConfiguration.GetUser();
 
         if (user == null)
-        {
-            try
-            {
-                user = await new AlexaCustomerProfileService().GetUserAsync(request);
-            }
-            catch (AlexaProfilePermissionException)
-            {
-                return Helpers.AlexaResponseFactory.AskForPhonePermission();
-            }
-            catch (Exception ex)
-            {
-                context.Logger.LogError($"No se pudo obtener el perfil de Alexa: {ex}");
-                return Helpers.AlexaResponseFactory.Speak(
-                    "No pude obtener el teléfono de tu perfil de Alexa. Revisa que tengas un número móvil configurado.");
-            }
-        }
+            return Helpers.AlexaResponseFactory.Speak(
+                "Aún no tienes un teléfono configurado. Di configurar teléfono seguido de tu número completo.");
 
         AlexaRequestRouter router = new AlexaRequestRouter(context, user);
 

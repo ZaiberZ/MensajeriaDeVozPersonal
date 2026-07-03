@@ -86,6 +86,25 @@
           ]
         },
         {
+          "name": "ConfigurarTelefonoIntent",
+          "slots": [
+            {
+              "name": "telefono",
+              "type": "AMAZON.PhoneNumber"
+            }
+          ],
+          "samples": [
+            "{telefono}",
+            "configurar teléfono",
+            "configurar teléfono {telefono}",
+            "registrar teléfono {telefono}",
+            "usar el número {telefono}",
+            "mi número es {telefono}",
+            "quiero usar el teléfono {telefono}",
+            "cambiar teléfono a {telefono}"
+          ]
+        },
+        {
           "name": "ConfirmarIntent",
           "slots": [],
           "samples": [
@@ -96,7 +115,9 @@
             "envíalo",
             "enviar",
             "de acuerdo",
-            "adelante"
+            "adelante",
+            "el número es correcto",
+            "ese es mi número"
           ]
         },
         {
@@ -108,7 +129,9 @@
             "olvídalo",
             "olvidalo",
             "mejor no",
-            "detener respuesta"
+            "detener respuesta",
+            "el número no es correcto",
+            "ese no es mi número"
           ]
         }
       ],
