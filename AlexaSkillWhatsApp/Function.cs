@@ -10,7 +10,7 @@ namespace AlexaSkillWhatsApp;
 
 public class Function
 {
-    public async Task<string> FunctionHandler(JsonElement input, ILambdaContext context)
+    public static async Task<string> FunctionHandler(JsonElement input, ILambdaContext context)
     {
         // context.Logger.LogLine(input.ToString());
         // context.Logger.LogLine(input.GetRawText());

@@ -7,15 +7,17 @@ namespace VoiceMessaging.Worker
     public class Worker : BackgroundService
     {
         private readonly ILogger<Worker> _logger;
+        private readonly IConfiguration _configuration;
 
-        public Worker(ILogger<Worker> logger)
+        public Worker(ILogger<Worker> logger, IConfiguration configuration)
         {
             _logger = logger;
+            _configuration = configuration;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var client = new HttpClient { BaseAddress = new Uri("http://localhost:3000") };
+            var client = new HttpClient { BaseAddress = new Uri(_configuration["WhatsAppGateway:Url"]!) };
             var whatsApp = new WhatsAppService(client);
             var firebase = new FirebaseService();
             string msgError;
@@ -102,7 +104,7 @@ namespace VoiceMessaging.Worker
                 }
                 #endregion
 
-                await Task.Delay(1000, stoppingToken);
+                await Task.Delay(int.Parse(_configuration["Worker:IntervalSeconds"]!.ToString()), stoppingToken);
             }
 
         }

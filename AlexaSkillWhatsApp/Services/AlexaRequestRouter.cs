@@ -9,7 +9,7 @@ namespace AlexaSkillWhatsApp.Services;
 public class AlexaRequestRouter
 {
     private readonly ConversationService _conversation = new ConversationService();
-    private ILambdaContext context;
+    private readonly ILambdaContext context;
 
     public AlexaRequestRouter(ILambdaContext context)
     {
@@ -79,7 +79,7 @@ public class AlexaRequestRouter
         state.CurrentAccount = lastMessage.Account;
         state.CurrentSource = lastMessage.Source;
 
-        var response = _conversation.ReadConversationMessages(messages, state.CurrentMessageIndex);
+        var response = ConversationService.ReadConversationMessages(messages, state.CurrentMessageIndex);
 
         foreach (var message in conversationMessages)
         {
@@ -127,7 +127,7 @@ public class AlexaRequestRouter
         state.CurrentAccount = lastMessage.Account;
         state.CurrentSource = lastMessage.Source;
 
-        var response = _conversation.ReadConversationMessages(messages, state.CurrentMessageIndex);
+        var response = ConversationService.ReadConversationMessages(messages, state.CurrentMessageIndex);
 
         foreach (var message in conversationMessages)
         {
@@ -140,7 +140,7 @@ public class AlexaRequestRouter
         return AlexaResponseFactory.Speak(response, state);
     }
 
-    private string Reply(AlexaRequest request)
+    private static string Reply(AlexaRequest request)
     {
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
@@ -181,11 +181,11 @@ public class AlexaRequestRouter
             }
         }
 
-        var response = _conversation.ReadConversationMessages(messages, state.CurrentMessageIndex);
+        var response = ConversationService.ReadConversationMessages(messages, state.CurrentMessageIndex);
 
         return AlexaResponseFactory.Speak(response, state);
     }
-    private string SaveReply(AlexaRequest request)
+    private static string SaveReply(AlexaRequest request)
     {
         var state = ConversationState.FromSession(request.Session!.Attributes);
 
@@ -200,7 +200,7 @@ public class AlexaRequestRouter
         return AlexaResponseFactory.Speak($"Entendí. {state.ReplyText}. ¿Deseas enviarlo?", state);
     }
 
-    private string CancelReply()
+    private static string CancelReply()
     {
         return AlexaResponseFactory.Speak("Se canceló la respuesta.");
     }

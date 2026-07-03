@@ -5,11 +5,9 @@ let connected = false;
 let pendingMessages = [];
 
 const client = new Client({
-
     authStrategy: new LocalAuth({ clientId: "personal", dataPath: "./data/auth" }),
-
     puppeteer: {
-        headless: false,    // Actualmente muestra el navegador
+        headless: true,    // Actualmente oculta el navegador
         args: ["--no-sandbox", "--disable-setuid-sandbox"]
     }
 });
@@ -68,7 +66,7 @@ client.on("disconnected", reason => {
 client.on("message", async (message) => {
     try {
         // Ignorar mensajes vacíos o de grupos por ahora
-        if (!message.body || message.from.includes("@g.us")) {
+        if (!message.body || message.from.includes("@g.us") || message.from.includes("status@broadcast")) {
             return;
         }
 

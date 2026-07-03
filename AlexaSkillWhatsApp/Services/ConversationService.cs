@@ -19,7 +19,7 @@ public class ConversationService
         return messages.OrderBy(m => m.ChatId).ThenBy(m => m.Date).ToList();
     }
 
-    public string ReadMessage(List<MessageDto> messages, int index)
+    public static string ReadMessage(List<MessageDto> messages, int index)
     {
         if (!messages.Any())
             return "No tienes mensajes nuevos.";
@@ -107,7 +107,7 @@ public class ConversationService
 
         return messages.OrderBy(m => m.ChatId).ThenBy(m => m.Date).ToList();
     }
-    public string ReadConversationMessages(List<MessageDto> messages, int startIndex)
+    public static string ReadConversationMessages(List<MessageDto> messages, int startIndex)
     {
         if (!messages.Any())
             return "No tienes mensajes nuevos.";

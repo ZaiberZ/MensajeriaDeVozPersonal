@@ -4,12 +4,12 @@ namespace AlexaSkillWhatsApp.Utils
 {
     public class ConversationStateHelper
     {
-        public ConversationState GetState(AlexaRequest request)
+        public static ConversationState GetState(AlexaRequest request)
         {
             return new ConversationState();
         }
 
-        public Dictionary<string, object> ToSessionAttributes(ConversationState state)
+        public static Dictionary<string, object> ToSessionAttributes(ConversationState state)
         {
             return [];
         }
