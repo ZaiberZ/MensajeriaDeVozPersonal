@@ -56,6 +56,7 @@ public class Worker : BackgroundService
         var whatsApp = new WhatsAppService(client);
         var firebase = new FirebaseService(_user);
         await firebase.EnsureUserRegisteredAsync();
+        await DeleteOldReadMessagesAsync(firebase, stoppingToken);
         string msgError = "";
 
         while (!stoppingToken.IsCancellationRequested)
@@ -78,6 +79,24 @@ public class Worker : BackgroundService
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
 
+    }
+
+    private async Task DeleteOldReadMessagesAsync(FirebaseService firebase, CancellationToken stoppingToken)
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-2);
+            var deletedMessages = await firebase.DeleteReadMessagesOlderThanAsync(cutoff);
+
+            _logger.LogInformation(
+                "Limpieza inicial completada. Se eliminaron {count} mensajes leídos anteriores a {cutoff}.",
+                deletedMessages,cutoff);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error limpiando mensajes leídos antiguos.");
+            await RegisterWorkerLogAsync("error",$"Error limpiando mensajes leídos antiguos: {ex}",stoppingToken);
+        }
     }
 
     private async Task<string> SaveNewMessages(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)

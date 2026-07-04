@@ -143,7 +143,31 @@ public class FirebaseService
 
     public async Task DeletePendingMessageAsync(string messageId)
     {
-        await _httpClient.DeleteAsync($"{PendingMessagesPath}/{messageId}.json");
+        var response = await _httpClient.DeleteAsync($"{PendingMessagesPath}/{messageId}.json");
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<int> DeleteReadMessagesOlderThanAsync(DateTime cutoff)
+    {
+        var json = await _httpClient.GetStringAsync($"{PendingMessagesPath}.json");
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return 0;
+
+        var messages = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json, _jsonOptions);
+
+        if (messages == null || messages.Count == 0)
+            return 0;
+
+        var messageIdsToDelete = messages
+            .Where(item => item.Value != null && item.Value.IsRead && item.Value.Date < cutoff)
+            .Select(item => item.Key).ToList();
+
+        foreach (var messageId in messageIdsToDelete)
+            await DeletePendingMessageAsync(messageId);
+
+        return messageIdsToDelete.Count;
     }
 
     public async Task SendCommandAsync(string command)
