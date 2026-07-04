@@ -53,7 +53,7 @@ public class AlexaRequestRouter
             "ResponderMensajeIntent" => Reply(request),
             "DictadoRespuestaIntent" => SaveReply(request),
             "ConfirmarIntent" => await ConfirmReply(request),
-            "CancelarRespuestaIntent" => CancelReply(),
+            "CancelarRespuestaIntent" => CancelReply(request),
             "AMAZON.HelpIntent" => AlexaResponseFactory.Speak("Puedes decir leer mensajes o responder."),
             "AMAZON.StopIntent" or "AMAZON.CancelIntent" => AlexaResponseFactory.EndConversation("Hasta luego."),
             _ => AlexaResponseFactory.Speak("No entendí ese comando.")
@@ -135,6 +135,8 @@ public class AlexaRequestRouter
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
         state.WaitingForReply = true;
+        state.WaitingForReplyConfirmation = false;
+        state.ReplyText = "";
 
         return AlexaResponseFactory.Speak("¿Qué deseas responder?", state);
     }
@@ -171,22 +173,39 @@ public class AlexaRequestRouter
     }
     private static string SaveReply(AlexaRequest request)
     {
-        var state = ConversationState.FromSession(request.Session!.Attributes);
+        var state = ConversationState.FromSession(request.Session?.Attributes);
 
-        var slot = request.Request.Intent!.Slots!["respuesta"];
+        if (!state.WaitingForReply)
+        {
+            return AlexaResponseFactory.Speak(
+                "Primero di responder para iniciar una respuesta.", state);
+        }
 
-        // context.Logger.LogLine($"Slots: " + JsonSerializer.Serialize(request.Request.Intent.Slots));
+        if (request.Request.Intent?.Slots == null ||
+            !request.Request.Intent.Slots.TryGetValue("respuesta", out var slot) ||
+            string.IsNullOrWhiteSpace(slot.Value))
+        {
+            return AlexaResponseFactory.Speak(
+                "No pude entender la respuesta. Dímela nuevamente.", state);
+        }
 
-        state.ReplyText = slot.Value;
+        state.ReplyText = slot.Value.Trim();
 
         state.WaitingForReply = false;
+        state.WaitingForReplyConfirmation = true;
 
         return AlexaResponseFactory.Speak($"Entendí. {state.ReplyText}. ¿Deseas enviarlo?", state);
     }
 
-    private static string CancelReply()
+    private static string CancelReply(AlexaRequest request)
     {
-        return AlexaResponseFactory.Speak("Se canceló la respuesta.");
+        var state = ConversationState.FromSession(request.Session?.Attributes);
+
+        state.WaitingForReply = false;
+        state.WaitingForReplyConfirmation = false;
+        state.ReplyText = "";
+
+        return AlexaResponseFactory.Speak("Se canceló la respuesta.", state);
     }
 
     private async Task<string> ConfirmReply(AlexaRequest request)
@@ -194,6 +213,22 @@ public class AlexaRequestRouter
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
         context.Logger.LogLine("state: " + JsonSerializer.Serialize(state));
+
+        if (!state.WaitingForReplyConfirmation || string.IsNullOrWhiteSpace(state.ReplyText))
+        {
+            context.Logger.LogLine("No se guardó la respuesta porque no existe una confirmación de respuesta pendiente.");
+
+            return AlexaResponseFactory.Speak(
+                "No hay una respuesta pendiente por enviar. Primero di responder.", state);
+        }
+
+        if (string.IsNullOrWhiteSpace(state.CurrentPhone))
+        {
+            context.Logger.LogLine("No se guardó la respuesta porque el estado de la conversación no tiene destinatario.");
+
+            return AlexaResponseFactory.Speak(
+                "No pude guardar tu respuesta porque el mensaje no tiene destinatario. Lee nuevamente tus mensajes e inténtalo otra vez.");
+        }
 
         await _conversation.SaveReplyAsync(
             state.CurrentMessageId,
@@ -205,7 +240,10 @@ public class AlexaRequestRouter
             state.ReplyText
         );
 
-        return AlexaResponseFactory.Speak("Perfecto. Tu respuesta fue guardada y será enviada.");
+        state.WaitingForReplyConfirmation = false;
+        state.ReplyText = "";
+
+        return AlexaResponseFactory.Speak("Perfecto. Tu respuesta fue guardada y será enviada.", state);
     }
 
     private async Task<string> ReadLastMessages(AlexaRequest request)

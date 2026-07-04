@@ -119,6 +119,9 @@ public class FirebaseService
 
     public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text)
     {
+        if (string.IsNullOrWhiteSpace(phone))
+            throw new ArgumentException("No se puede guardar una respuesta sin destinatario.", nameof(phone));
+
         var reply = new ReplyMessageDto
         {
             MessageId = messageId,
