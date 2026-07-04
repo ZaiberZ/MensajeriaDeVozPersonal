@@ -4,6 +4,7 @@ const path = require("path");
 const util = require("util");
 
 const MAX_LOG_ENTRIES = 1000;
+const MAX_DUPLICATE_ENTRIES = 5;
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
 const logFilePath = path.join(dataDirectory, "gateway-logs.json");
@@ -34,20 +35,47 @@ function readLogs() {
 function writeLog(level, args, source = "WhatsAppGateway") {
     try {
         const logs = readLogs();
+        const timestamp = new Date().toISOString();
+        const message = formatArguments(args);
+        const duplicateIndexes = [];
+
+        for (let index = 0; index < logs.length; index++) {
+            const log = logs[index];
+
+            if (log.level === level && log.source === source && log.message === message)
+                duplicateIndexes.push(index);
+        }
+
+        const lastDuplicateIndex = duplicateIndexes[duplicateIndexes.length - 1];
+        const previousAttemptCount = lastDuplicateIndex === undefined
+            ? 0
+            : logs[lastDuplicateIndex].attemptCount;
+
         const entry = {
-            timestamp: new Date().toISOString(),
+            timestamp,
             level,
             source,
-            message: formatArguments(args)
+            message,
+            attemptCount: previousAttemptCount + 1,
+            lastAttemptAt: timestamp
         };
-        logs.push(entry);
+        let savedEntry = entry;
 
-        fs.writeFileSync(
-            logFilePath,
-            JSON.stringify(logs.slice(-MAX_LOG_ENTRIES), null, 2),
-            "utf8");
+        if (duplicateIndexes.length < MAX_DUPLICATE_ENTRIES) {
+            logs.push(entry);
+        } else {
+            savedEntry = {
+                ...logs[lastDuplicateIndex],
+                attemptCount: entry.attemptCount,
+                lastAttemptAt: timestamp
+            };
+            logs.splice(lastDuplicateIndex, 1);
+            logs.push(savedEntry);
+        }
 
-        return entry;
+        fs.writeFileSync(logFilePath, JSON.stringify(logs.slice(-MAX_LOG_ENTRIES), null, 2), "utf8");
+
+        return savedEntry;
     } catch (error) {
         originalConsoleError("No fue posible guardar el log:", error);
         return null;
