@@ -20,6 +20,7 @@ let initialized = false;
 let connected = false;
 let lastQr = null;
 let pendingMessages = [];
+const pendingMessageIds = new Set();
 const User = { "Phone": "", "FullName": "", "Email": "", IsRegistered: false };
 
 function getBundledChromePath() {
@@ -69,6 +70,13 @@ client.on("ready", async () => {
 
     console.log("WhatsApp conectado.");
 
+    try {
+        await recoverUnreadMessages();
+    } catch (error) {
+        console.error("Error al recuperar mensajes no leídos:");
+        console.error(error);
+    }
+
     // if (!hasSession) {
         // console.log("Primera autenticación completada. Reiniciando Gateway...");
         // setTimeout(() => { process.exit(0); }, 3000);
@@ -96,24 +104,12 @@ client.on("disconnected", reason => {
 client.on("message", async (message) => {
     try {
         // Ignorar mensajes vacíos o de grupos por ahora, tambien de status
-        if (!message.body || message.from.includes("@g.us") || message.from.includes("status@broadcast")) {
+        if (!isSupportedIncomingMessage(message)) {
             return;
         }
 
-        const contact = await message.getContact();
-
-        const incomingMessage = {
-            id: message.id.id,
-            chatId: message.from,
-            sender: contact.pushname || contact.name || message.from,
-            phone: message.from.replace("@c.us", ""),
-            text: message.body,
-            source: "WhatsApp",
-            account: "Personal",
-            date: new Date().toISOString()
-        };
-
-        pendingMessages.push(incomingMessage);
+        const incomingMessage = await createIncomingMessage(message);
+        enqueuePendingMessage(incomingMessage);
 
         console.log("Mensaje recibido:");
         console.log(incomingMessage);
@@ -124,6 +120,84 @@ client.on("message", async (message) => {
         console.error(error);
     }
 });
+
+function isSupportedIncomingMessage(message) {
+    const chatId = message.from || "";
+
+    return Boolean(message.body) &&
+        !message.fromMe &&
+        !chatId.includes("@g.us") &&
+        !chatId.includes("status@broadcast");
+}
+
+async function createIncomingMessage(message, senderFallback = "") {
+    let sender = senderFallback || message.from;
+
+    try {
+        const contact = await message.getContact();
+        sender = contact.pushname || contact.name || sender;
+    } catch (error) {
+        console.warn(`No se pudo obtener el contacto de ${message.from}: ${error.message}`);
+    }
+
+    return {
+        id: message.id.id,
+        chatId: message.from,
+        sender,
+        phone: message.from.replace("@c.us", ""),
+        text: message.body,
+        source: "WhatsApp",
+        account: "Personal",
+        date: message.timestamp
+            ? new Date(message.timestamp * 1000).toISOString()
+            : new Date().toISOString()
+    };
+}
+
+function enqueuePendingMessage(message) {
+    const messageKey = `${message.chatId}:${message.id}`;
+
+    if (pendingMessageIds.has(messageKey))
+        return false;
+
+    pendingMessageIds.add(messageKey);
+    pendingMessages.push(message);
+    return true;
+}
+
+async function recoverUnreadMessages() {
+    const chats = await client.getChats();
+    let recoveredCount = 0;
+
+    for (const chat of chats) {
+        const chatId = chat.id?._serialized || "";
+
+        if (chat.isGroup || chatId.includes("status@broadcast") || chat.unreadCount <= 0)
+            continue;
+
+        try {
+            const unreadMessages = await chat.fetchMessages({
+                limit: chat.unreadCount,
+                fromMe: false
+            });
+
+            for (const message of unreadMessages) {
+                if (!isSupportedIncomingMessage(message))
+                    continue;
+
+                const incomingMessage = await createIncomingMessage(message, chat.name || chatId);
+
+                if (enqueuePendingMessage(incomingMessage))
+                    recoveredCount++;
+            }
+        } catch (error) {
+            console.error(`Error al recuperar mensajes no leídos de ${chatId}:`);
+            console.error(error);
+        }
+    }
+
+    console.log(`${recoveredCount} mensaje(s) no leído(s) recuperado(s).`);
+}
 
 function normalizePhone(phone) {
 
@@ -152,9 +226,23 @@ async function sendMessage(chatId, phone, text) {
     await client.sendMessage(numberId._serialized, text);
 }
 
-function getPendingMessages() {
+async function getPendingMessages() {
     const messages = [...pendingMessages];
     pendingMessages = [];
+
+    for (const message of messages)
+        pendingMessageIds.delete(`${message.chatId}:${message.id}`);
+
+    const chatIds = [...new Set(messages.map(message => message.chatId))];
+
+    for (const chatId of chatIds) {
+        try {
+            await client.sendSeen(chatId);
+        } catch (error) {
+            console.error(`No se pudo marcar como leído el chat ${chatId}:`);
+            console.error(error);
+        }
+    }
 
     return messages;
 

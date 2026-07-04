@@ -72,9 +72,15 @@ app.post("/send", async (req, res) => {
     }
 });
 
-app.get("/messages", (req, res) => {
-    const messages = whatsapp.getPendingMessages();
-    res.json(messages);
+app.get("/messages", async (req, res) => {
+    try {
+        const messages = await whatsapp.getPendingMessages();
+        res.json(messages);
+    } catch (error) {
+        console.error("Error al entregar mensajes pendientes:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.get("/qr", (req, res) => {
