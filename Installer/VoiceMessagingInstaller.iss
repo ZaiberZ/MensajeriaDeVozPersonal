@@ -1,16 +1,24 @@
+#ifndef InstallerOutputDir
+  #define InstallerOutputDir "D:\Publish"
+#endif
+
+#ifndef InstallerSource
+  #define InstallerSource "D:\Publish\VoiceMessaging\*"
+#endif
+
 [Setup]
 AppName=Voice Messaging
 AppVersion=1.0
 DefaultDirName={autopf}\VoiceMessaging
 DefaultGroupName=Voice Messaging
-OutputDir=D:\Publish
+OutputDir={#InstallerOutputDir}
 OutputBaseFilename=VoiceMessagingInstaller
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=admin
 
 [Files]
-Source: "D:\Publish\VoiceMessaging\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "{#InstallerSource}"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/status"
@@ -34,6 +42,131 @@ Filename: "{sys}\sc.exe"; Parameters: "delete VoiceMessagingWorker"; Flags: runh
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+
+const
+  ServiceName = 'VoiceMessagingWorker';
+
+function ServiceExists(): Boolean;
+begin
+  Result := RegKeyExists(HKEY_LOCAL_MACHINE,
+    'SYSTEM\CurrentControlSet\Services\' + ServiceName);
+end;
+
+function StopNodeProcesses(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  { El gateway se ejecuta con Node.js. En este equipo de un solo usuario es
+    seguro cerrar todas las instancias antes de reemplazar sus archivos. }
+  Result := Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM node.exe', '',
+    SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  { taskkill devuelve 128 cuando no hay ningun node.exe en ejecucion. }
+  Result := Result and ((ResultCode = 0) or (ResultCode = 128));
+end;
+
+function WaitUntilServiceStops(): Boolean;
+var
+  I: Integer;
+  ResultCode: Integer;
+begin
+  Result := False;
+
+  for I := 1 to 30 do
+  begin
+    if Exec(ExpandConstant('{cmd}'),
+      '/C sc.exe query ' + ServiceName + ' | find "STOPPED" >nul', '',
+      SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    Sleep(1000);
+  end;
+end;
+
+function WaitUntilServiceIsRemoved(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+
+  for I := 1 to 30 do
+  begin
+    if not ServiceExists() then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    Sleep(1000);
+  end;
+end;
+
+function RemoveExistingService(): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+
+  if not ServiceExists() then
+    Exit;
+
+  { Se detiene primero WhatsAppGateway y enseguida el Worker para impedir que
+    queden procesos usando los archivos que el instalador va a reemplazar. }
+  if not StopNodeProcesses() then
+  begin
+    Result := 'No fue posible detener WhatsAppGateway.';
+    Exit;
+  end;
+
+  if not Exec(ExpandConstant('{sys}\sc.exe'), 'stop ' + ServiceName, '',
+    SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Result := 'No fue posible solicitar la detencion del servicio existente.';
+    Exit;
+  end;
+
+  { 1062 significa que el servicio ya estaba detenido. }
+  if (ResultCode <> 0) and (ResultCode <> 1062) then
+  begin
+    Result := 'No fue posible detener el servicio existente. Codigo: ' +
+      IntToStr(ResultCode) + '.';
+    Exit;
+  end;
+
+  if (ResultCode = 0) and not WaitUntilServiceStops() then
+  begin
+    Result := 'El servicio existente no se detuvo dentro del tiempo esperado.';
+    Exit;
+  end;
+
+  { El Worker podria haber intentado reabrir el gateway durante la detencion. }
+  if not StopNodeProcesses() then
+  begin
+    Result := 'No fue posible confirmar el cierre de WhatsAppGateway.';
+    Exit;
+  end;
+
+  if not Exec(ExpandConstant('{sys}\sc.exe'), 'delete ' + ServiceName, '',
+    SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  begin
+    Result := 'No fue posible eliminar el servicio existente. Codigo: ' +
+      IntToStr(ResultCode) + '.';
+    Exit;
+  end;
+
+  if not WaitUntilServiceIsRemoved() then
+  begin
+    Result := 'El servicio existente quedo pendiente de eliminacion.';
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := RemoveExistingService();
+end;
 
 function IsNodeInstalled(): Boolean;
 var

@@ -1,12 +1,16 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const authPath = path.join(__dirname, "data", "auth");
 const sessionPath = path.join(authPath, "session-personal");
 const readyFilePath = path.join(authPath, "personal.ready");
 const hasReadySession = fs.existsSync(readyFilePath);
+const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
+const dataDirectory = path.join(dataRoot, "VoiceMessaging");
+const userFilePath = path.join(dataDirectory, "user-data.json");
 
 process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, ".cache");
 
@@ -60,6 +64,7 @@ client.on("qr", async (qr) => {
 client.on("ready", async () => {
     connected = true;
     lastQr = null;
+    User.IsRegistered = true;
     fs.writeFileSync(readyFilePath, new Date().toISOString(), "utf8");
 
     console.log("WhatsApp conectado.");
@@ -156,26 +161,38 @@ function getPendingMessages() {
 }
 
 function saveUser(user) {
-    const appSettingsPath = path.join(__dirname, "..", "appsettings.json");
-
-    if (!fs.existsSync(appSettingsPath)) {
-        throw new Error("No se encontró appsettings.json");
-    }
-
-    const appSettings = JSON.parse(fs.readFileSync(appSettingsPath, "utf8"));
-
-    appSettings.User = {
+    const savedUser = {
         Phone: user.phone,
         FullName: user.fullName,
         Email: user.email
     };
 
-    User.Phone = user.phone;
-    User.FullName = user.fullName;
-    User.Email = user.email;
-    User.IsRegistered = true;
+    fs.mkdirSync(dataDirectory, { recursive: true });
+    fs.writeFileSync(userFilePath, JSON.stringify(savedUser, null, 2), "utf8");
 
-    fs.writeFileSync(appSettingsPath, JSON.stringify(appSettings, null, 2), "utf8");
+    User.Phone = savedUser.Phone;
+    User.FullName = savedUser.FullName;
+    User.Email = savedUser.Email;
+}
+
+function loadUser() {
+    if (!fs.existsSync(userFilePath))
+        return;
+
+    const savedUser = JSON.parse(fs.readFileSync(userFilePath, "utf8"));
+
+    User.Phone = savedUser.Phone || "";
+    User.FullName = savedUser.FullName || "";
+    User.Email = savedUser.Email || "";
+}
+
+function clearUser() {
+    User.Phone = "";
+    User.FullName = "";
+    User.Email = "";
+
+    if (fs.existsSync(userFilePath))
+        fs.unlinkSync(userFilePath);
 }
 
 async function initialize() {
@@ -186,6 +203,8 @@ async function initialize() {
     }
 
     initialized = true;
+    User.IsRegistered = false;
+    loadUser();
 
     console.log("Inicializando WhatsApp...");
 
@@ -201,20 +220,6 @@ async function initialize() {
 }
 
 function isConnected() {
-    const appSettingsPath = path.join(__dirname, "..", "appsettings.json");
-
-    if (!User.IsRegistered && fs.existsSync(appSettingsPath)) {
-        const appSettings = JSON.parse(fs.readFileSync(appSettingsPath, "utf8"));
-        const savedUser = appSettings.User;
-
-        if (savedUser?.Phone) {
-            User.Phone = savedUser.Phone;
-            User.FullName = savedUser.FullName;
-            User.Email = savedUser.Email;
-            User.IsRegistered = true;
-        }
-    }
-
     return { connected, User };
 }
 
@@ -225,5 +230,6 @@ module.exports = {
     getPendingMessages,
     getQr,
     saveUser,
+    clearUser,
     isConnected
 };

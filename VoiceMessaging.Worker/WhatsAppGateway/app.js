@@ -113,3 +113,19 @@ app.post("/setup-user", (req, res) => {
         });
     }
 });
+
+app.delete("/setup-user", (req, res) => {
+    try {
+        console.log("Limpiando usuario...");
+        whatsapp.clearUser();
+
+        res.json({ success: true });
+        console.log("Información del usuario eliminada");
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+});

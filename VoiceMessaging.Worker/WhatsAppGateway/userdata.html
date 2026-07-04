@@ -50,6 +50,7 @@
         }
 
         button:disabled { opacity: .65; }
+        .danger { background: #c92a2a; }
         dt { margin-top: 14px; font-weight: 600; }
         dd { margin: 4px 0 0; }
         .error { color: #c92a2a; }
@@ -71,6 +72,8 @@
                 <dt>Correo electrónico</dt>
                 <dd id="savedEmail"></dd>
             </dl>
+
+            <button id="clearUserButton" class="danger" type="button">Limpiar información</button>
         </section>
 
         <form id="userForm" hidden>

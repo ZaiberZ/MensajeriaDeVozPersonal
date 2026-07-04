@@ -7,6 +7,7 @@ if (page === "qr") {
 
 if (page === "userdata") {
     document.getElementById("userForm").addEventListener("submit", saveUser);
+    document.getElementById("clearUserButton").addEventListener("click", clearUser);
     loadUserData();
 }
 
@@ -109,6 +110,36 @@ async function saveUser(event) {
             throw new Error(result.message || "No fue posible guardar la información.");
         }
 
+        await loadUserData();
+    } catch (error) {
+        message.textContent = error.message;
+        message.classList.add("error");
+        console.error(error);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function clearUser() {
+    if (!window.confirm("¿Está seguro de que desea eliminar la información actual?"))
+        return;
+
+    const button = document.getElementById("clearUserButton");
+    const message = document.getElementById("userMessage");
+
+    button.disabled = true;
+    message.classList.remove("error");
+    message.textContent = "Eliminando información...";
+
+    try {
+        const response = await fetch("/setup-user", { method: "DELETE" });
+
+        if (!response.ok) {
+            const result = await response.json();
+            throw new Error(result.message || "No fue posible eliminar la información.");
+        }
+
+        document.getElementById("userForm").reset();
         await loadUserData();
     } catch (error) {
         message.textContent = error.message;
