@@ -4,12 +4,24 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const authPath = path.join(__dirname, "data", "auth");
+const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
+const dataDirectory = path.join(dataRoot, "VoiceMessaging");
+const authPath = path.join(dataDirectory, "whatsapp-auth");
+const legacyAuthPath = path.join(__dirname, "data", "auth");
+
+function migrateLegacyAuth() {
+    if (fs.existsSync(authPath) || !fs.existsSync(legacyAuthPath))
+        return;
+
+    fs.mkdirSync(dataDirectory, { recursive: true });
+    fs.cpSync(legacyAuthPath, authPath, { recursive: true });
+}
+
+migrateLegacyAuth();
+
 const sessionPath = path.join(authPath, "session-personal");
 const readyFilePath = path.join(authPath, "personal.ready");
 const hasReadySession = fs.existsSync(readyFilePath);
-const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
-const dataDirectory = path.join(dataRoot, "VoiceMessaging");
 const userFilePath = path.join(dataDirectory, "user-data.json");
 
 process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, ".cache");

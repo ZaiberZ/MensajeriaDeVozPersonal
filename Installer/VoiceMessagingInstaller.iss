@@ -39,6 +39,8 @@ Filename: "taskkill.exe"; Parameters: "/F /IM node.exe"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "delete VoiceMessagingWorker"; Flags: runhidden waituntilterminated
 
 [UninstallDelete]
+; La autenticacion de WhatsApp, los datos del usuario y los logs se guardan en
+; {commonappdata}\VoiceMessaging y se conservan intencionalmente al desinstalar.
 Type: filesandordirs; Name: "{app}"
 
 [Code]

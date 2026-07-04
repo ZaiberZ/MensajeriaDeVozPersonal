@@ -1,7 +1,7 @@
 {
   "interactionModel": {
     "languageModel": {
-      "invocationName": "mensajeria personal",
+      "invocationName": "asistente whatsapp",
       "intents": [
         {
           "name": "AMAZON.CancelIntent",
@@ -14,17 +14,6 @@
         {
           "name": "AMAZON.StopIntent",
           "samples": []
-        },
-        {
-          "name": "HelloWorldIntent",
-          "slots": [],
-          "samples": [
-            "hola",
-            "como estás",
-            "di hola mundo",
-            "di hola",
-            "hola mundo"
-          ]
         },
         {
           "name": "AMAZON.NavigateHomeIntent",
@@ -94,14 +83,11 @@
             }
           ],
           "samples": [
-            "{telefono}",
-            "configurar teléfono",
-            "configurar teléfono {telefono}",
-            "registrar teléfono {telefono}",
-            "usar el número {telefono}",
-            "mi número es {telefono}",
-            "quiero usar el teléfono {telefono}",
-            "cambiar teléfono a {telefono}"
+            "configurar mi número de WhatsApp",
+            "registrar mi número de WhatsApp {telefono}",
+            "usar mi WhatsApp con el número {telefono}",
+            "mi número de WhatsApp es {telefono}",
+            "cambiar mi número de WhatsApp a {telefono}"
           ]
         },
         {

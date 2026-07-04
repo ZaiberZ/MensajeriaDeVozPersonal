@@ -54,7 +54,7 @@ async function loadUserData() {
         const status = await response.json();
         const user = status.User ?? status.user;
 
-        if (user?.IsRegistered && user.Phone) {
+        if (user?.Phone) {
             document.getElementById("savedFullName").textContent = user.FullName || "Sin especificar";
             document.getElementById("savedPhone").textContent = user.Phone;
             document.getElementById("savedEmail").textContent = user.Email || "Sin especificar";
