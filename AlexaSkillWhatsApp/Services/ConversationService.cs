@@ -13,13 +13,19 @@ public class ConversationService
 
     public async Task<int> GetPendingMessagesCountAsync()
     {
-        var messages = await _firebase.GetPendingMessagesAsync();
+        var messages = await GetPendingMessagesAsync();
 
         return messages.Count;
     }
     public async Task<List<MessageDto>> GetPendingMessagesAsync()
     {
+        if (!await _firebase.HasPendingMessagesAsync())
+            return [];
+
         var messages = await _firebase.GetPendingMessagesAsync();
+
+        if (messages.Count == 0)
+            await _firebase.SetHasPendingMessagesAsync(false);
 
         return messages.OrderBy(m => m.ChatId).ThenBy(m => m.Date).ToList();
     }
@@ -43,7 +49,7 @@ public class ConversationService
 
     public async Task<string> ReadFirstMessageAsync()
     {
-        var messages = await _firebase.GetPendingMessagesAsync();
+        var messages = await GetPendingMessagesAsync();
 
         if (!messages.Any())
             return "No tienes mensajes nuevos.";
@@ -74,9 +80,13 @@ public class ConversationService
         await _firebase.MarkAsReadAsync(messageId);
 
     }
+    public Task SetHasPendingMessagesAsync(bool value)
+    {
+        return _firebase.SetHasPendingMessagesAsync(value);
+    }
     public async Task<string> ReadConversationSummaryAsync()
     {
-        var messages = await _firebase.GetPendingMessagesAsync();
+        var messages = await GetPendingMessagesAsync();
 
         if (!messages.Any())
             return "No tienes mensajes nuevos.";
@@ -108,7 +118,7 @@ public class ConversationService
     }
     public async Task<List<MessageDto>> GetPendingMessagesGroupedAsync()
     {
-        var messages = await _firebase.GetPendingMessagesAsync();
+        var messages = await GetPendingMessagesAsync();
 
         return messages.OrderBy(m => m.ChatId).ThenBy(m => m.Date).ToList();
     }

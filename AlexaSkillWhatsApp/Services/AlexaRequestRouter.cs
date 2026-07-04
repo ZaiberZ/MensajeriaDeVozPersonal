@@ -83,13 +83,7 @@ public class AlexaRequestRouter
 
         var response = ConversationService.ReadConversationMessages(messages, state.CurrentMessageIndex);
 
-        foreach (var message in conversationMessages)
-        {
-            if (!message.IsRead)
-            {
-                await _conversation.MarkAsReadAsync(message.Id);
-            }
-        }
+        await MarkConversationAsReadAsync(messages, conversationMessages);
 
         return AlexaResponseFactory.Speak(response, state);
     }
@@ -131,13 +125,7 @@ public class AlexaRequestRouter
 
         var response = ConversationService.ReadConversationMessages(messages, state.CurrentMessageIndex);
 
-        foreach (var message in conversationMessages)
-        {
-            if (!message.IsRead)
-            {
-                await _conversation.MarkAsReadAsync(message.Id);
-            }
-        }
+        await MarkConversationAsReadAsync(messages, conversationMessages);
 
         return AlexaResponseFactory.Speak(response, state);
     }
@@ -175,13 +163,7 @@ public class AlexaRequestRouter
         state.CurrentAccount = lastMessage.Account;
         state.CurrentSource = lastMessage.Source;
 
-        foreach (var message in conversationMessages)
-        {
-            if (!message.IsRead)
-            {
-                await _conversation.MarkAsReadAsync(message.Id);
-            }
-        }
+        await MarkConversationAsReadAsync(messages, conversationMessages);
 
         var response = ConversationService.ReadConversationMessages(messages, state.CurrentMessageIndex);
 
@@ -259,5 +241,22 @@ public class AlexaRequestRouter
         }
 
         return AlexaResponseFactory.Speak(sb.ToString());
+    }
+
+    private async Task MarkConversationAsReadAsync(
+        List<MessageDto> allPendingMessages,
+        List<MessageDto> conversationMessages)
+    {
+        foreach (var message in conversationMessages.Where(message => !message.IsRead))
+        {
+            await _conversation.MarkAsReadAsync(message.Id);
+        }
+
+        var readMessageIds = conversationMessages.Select(message => message.Id).ToHashSet();
+        var hasOtherUnreadMessages = allPendingMessages.Any(message =>
+            !message.IsRead && !readMessageIds.Contains(message.Id));
+
+        if (!hasOtherUnreadMessages)
+            await _conversation.SetHasPendingMessagesAsync(false);
     }
 }

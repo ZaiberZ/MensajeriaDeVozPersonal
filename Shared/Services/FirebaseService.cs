@@ -35,6 +35,42 @@ public class FirebaseService
     private string OutgoingMessagesPath => FirebaseSettings.OutgoingMessagesFor(_userId);
     private string CommandsPath => FirebaseSettings.CommandsFor(_userId);
     private string StatusPath => FirebaseSettings.StatusFor(_userId);
+    private string ControlPath => $"{UserPath}/control";
+
+    public async Task<bool> HasPendingMessagesAsync()
+    {
+        var json = await _httpClient.GetStringAsync($"{ControlPath}/has_pending_messages.json");
+
+        return !string.IsNullOrWhiteSpace(json) && json != "null" &&
+               JsonSerializer.Deserialize<bool>(json, _jsonOptions);
+    }
+
+    public async Task<bool> HasPendingRepliesAsync()
+    {
+        var json = await _httpClient.GetStringAsync($"{ControlPath}/has_pending_replies.json");
+
+        return !string.IsNullOrWhiteSpace(json) && json != "null" &&
+               JsonSerializer.Deserialize<bool>(json, _jsonOptions);
+    }
+
+    public Task SetHasPendingMessagesAsync(bool value)
+    {
+        return SetControlFlagAsync("has_pending_messages", value);
+    }
+
+    public Task SetHasPendingRepliesAsync(bool value)
+    {
+        return SetControlFlagAsync("has_pending_replies", value);
+    }
+
+    private async Task SetControlFlagAsync(string flag, bool value)
+    {
+        var json = JsonSerializer.Serialize(value, _jsonOptions);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{ControlPath}/{flag}.json", content);
+
+        response.EnsureSuccessStatusCode();
+    }
 
     public async Task EnsureUserRegisteredAsync()
     {
@@ -99,7 +135,10 @@ public class FirebaseService
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        await _httpClient.PostAsync($"{OutgoingMessagesPath}.json", content);
+        var response = await _httpClient.PostAsync($"{OutgoingMessagesPath}.json", content);
+
+        response.EnsureSuccessStatusCode();
+        await SetHasPendingRepliesAsync(true);
     }
 
     public async Task DeletePendingMessageAsync(string messageId)

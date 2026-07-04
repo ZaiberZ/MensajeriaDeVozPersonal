@@ -75,7 +75,7 @@ public class Worker : BackgroundService
 
             msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
             msgError += await SendPendingReplies(whatsApp, firebase, stoppingToken);
-            await Task.Delay(int.Parse(_configuration["Worker:IntervalSeconds"]!.ToString()), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
 
     }
@@ -105,6 +105,7 @@ public class Worker : BackgroundService
                     };
 
                     await firebase.SaveIncomingMessageAsync(firebaseMessage);
+                    await firebase.SetHasPendingMessagesAsync(true);
 
                     _logger.LogInformation("Mensaje guardado en Firebase: {sender} - {text}", firebaseMessage.Sender, firebaseMessage.Text);
                 }
@@ -130,7 +131,11 @@ public class Worker : BackgroundService
         string msgError = "";
         try
         {
+            if (!await firebase.HasPendingRepliesAsync())
+                return msgError;
+
             var replies = await firebase.GetPendingRepliesAsync();
+            var allRepliesProcessed = true;
 
             foreach (var reply in replies)
             {
@@ -142,6 +147,7 @@ public class Worker : BackgroundService
                         _logger.LogWarning("No se pudo enviar respuesta {id}. No tiene teléfono.", reply.Sender);
                         await RegisterWorkerLogAsync("warning", $"No se pudo enviar la respuesta de {reply.Sender}. No tiene teléfono.", stoppingToken);
 
+                        allRepliesProcessed = false;
                         continue;
                     }
 
@@ -154,11 +160,15 @@ public class Worker : BackgroundService
                 }
                 catch (Exception e)
                 {
+                    allRepliesProcessed = false;
                     msgError += e.Message + " | ";
                 }
             }
             if (!string.IsNullOrEmpty(msgError))
                 throw new Exception(msgError);
+
+            if (allRepliesProcessed)
+                await firebase.SetHasPendingRepliesAsync(false);
         }
         catch (Exception ex)
         {
