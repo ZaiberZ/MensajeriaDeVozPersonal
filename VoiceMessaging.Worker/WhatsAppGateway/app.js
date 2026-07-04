@@ -2,6 +2,9 @@ const express = require("express");
 const path = require("path");
 const cors = require("cors");
 
+const logger = require("./logger");
+logger.installConsoleCapture();
+
 const whatsapp = require("./whatsapp");
 
 const app = express();
@@ -21,6 +24,29 @@ app.get("/", (req, res) => {
 
 app.get("/status", (req, res) => {
     res.json(whatsapp.isConnected());
+});
+
+app.get("/logs", (req, res) => {
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 200;
+    const level = typeof req.query.level === "string" ? req.query.level : undefined;
+    const logs = logger.getLogs(level, limit);
+
+    res.json({ file: logger.logFilePath, count: logs.length, logs });
+});
+
+app.post("/logs", (req, res) => {
+    try {
+        const { level, message, source = "VoiceMessaging.Worker" } = req.body ?? {};
+        const log = logger.addLog(level, message, source);
+
+        if (!log)
+            return res.status(500).json({ success: false, message: "No fue posible guardar el log." });
+
+        res.status(201).json({ success: true, log });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
 });
 
 const PORT = 3000;

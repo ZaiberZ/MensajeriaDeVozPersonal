@@ -69,22 +69,24 @@ public class Worker : BackgroundService
                     await Task.Delay(5000, stoppingToken);
                     continue;
                 }
+
+                await RegisterWorkerLogAsync("warning", "WhatsAppGateway dejó de responder y fue reiniciado por el Worker.", stoppingToken);
             }
 
-            msgError += await SaveNewMessages(whatsApp, firebase);
-            msgError += await SendPendingReplies(whatsApp, firebase);
+            msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
+            msgError += await SendPendingReplies(whatsApp, firebase, stoppingToken);
             await Task.Delay(int.Parse(_configuration["Worker:IntervalSeconds"]!.ToString()), stoppingToken);
         }
 
     }
 
-    private async Task<string> SaveNewMessages(WhatsAppService whatsApp, FirebaseService firebase)
+    private async Task<string> SaveNewMessages(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
     {
         string msgError = "";
         try
         {
             var messages = await whatsApp.GetMessagesAsync();
-            
+
 
             foreach (var message in messages)
             {
@@ -116,13 +118,14 @@ public class Worker : BackgroundService
         }
         catch (Exception ex)
         {
-            Console.WriteLine("ERROR: " + ex.Message);
+            _logger.LogError(ex, "Error guardando mensajes nuevos.");
+            await RegisterWorkerLogAsync("error", $"Error guardando mensajes nuevos: {ex}", stoppingToken);
         }
 
         return msgError;
     }
 
-    private async Task<string> SendPendingReplies(WhatsAppService whatsApp, FirebaseService firebase)
+    private async Task<string> SendPendingReplies(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
     {
         string msgError = "";
         try
@@ -137,6 +140,7 @@ public class Worker : BackgroundService
                     if (string.IsNullOrWhiteSpace(reply.Phone))
                     {
                         _logger.LogWarning("No se pudo enviar respuesta {id}. No tiene teléfono.", reply.Sender);
+                        await RegisterWorkerLogAsync("warning", $"No se pudo enviar la respuesta de {reply.Sender}. No tiene teléfono.", stoppingToken);
 
                         continue;
                     }
@@ -158,10 +162,41 @@ public class Worker : BackgroundService
         }
         catch (Exception ex)
         {
-            Console.WriteLine("ERROR: " + ex.Message);
+            _logger.LogError(ex, "Error enviando respuestas pendientes.");
+            await RegisterWorkerLogAsync("error", $"Error enviando respuestas pendientes: {ex}", stoppingToken);
         }
 
         return msgError;
+    }
+
+    private async Task RegisterWorkerLogAsync(string level, string message, CancellationToken stoppingToken)
+    {
+        try
+        {
+            var gatewayUrl = _configuration["WhatsAppGateway:Url"] ?? "http://localhost:3000";
+
+            using var httpClient = new HttpClient
+            {
+                BaseAddress = new Uri(gatewayUrl),
+                Timeout = TimeSpan.FromSeconds(3)
+            };
+
+            var response = await httpClient.PostAsJsonAsync("/logs", new { level, message, source = "VoiceMessaging.Worker" }, stoppingToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("No fue posible registrar el log del Worker en el gateway. Código HTTP: {statusCode}", response.StatusCode);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // El servicio se está deteniendo; no es necesario persistir más logs.
+        }
+        catch (Exception ex)
+        {
+            // El registro remoto es de mejor esfuerzo y nunca debe detener al Worker.
+            _logger.LogDebug(ex, "No fue posible enviar el log del Worker al gateway.");
+        }
     }
 
     private async Task<bool> EnsureWhatsAppGatewayIsRunningAsync(CancellationToken stoppingToken)

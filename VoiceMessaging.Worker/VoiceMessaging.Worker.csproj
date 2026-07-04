@@ -44,6 +44,9 @@
     <None Update="WhatsAppGateway\app.js">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="WhatsAppGateway\logger.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="WhatsAppGateway\qr.html">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
