@@ -40,6 +40,21 @@ public class WhatsAppService
             return [];
         }
     }
+
+    public async Task<List<WhatsAppIncomingMessageDto>> GetUnreadMessagesAsync()
+    {
+        var messages = await _httpClient.GetFromJsonAsync<List<WhatsAppIncomingMessageDto>>("/unread-messages");
+
+        return messages ?? [];
+    }
+
+    public async Task MarkChatAsReadAsync(string chatId)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/mark-read", new { chatId });
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task SendReplyAsync(ReplyMessageDto reply)
     {
         var request = new

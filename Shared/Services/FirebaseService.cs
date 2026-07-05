@@ -117,6 +117,29 @@ public class FirebaseService
         }
     }
 
+    public async Task<List<MessageDto>> GetAllMessagesAsync()
+    {
+        var json = await _httpClient.GetStringAsync($"{PendingMessagesPath}.json");
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return [];
+
+        var dictionary = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json, _jsonOptions);
+
+        if (dictionary == null || dictionary.Count == 0)
+            return [];
+
+        return dictionary
+            .Where(item => item.Value != null)
+            .Select(item =>
+            {
+                item.Value.Id = item.Key;
+                return item.Value;
+            })
+            .OrderBy(message => message.Date)
+            .ToList();
+    }
+
     public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text)
     {
         if (string.IsNullOrWhiteSpace(phone))

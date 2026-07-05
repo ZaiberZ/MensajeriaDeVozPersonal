@@ -6,6 +6,9 @@ public class MessageDto
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
+    [JsonPropertyName("externalMessageId")]
+    public string ExternalMessageId { get; set; } = "";
+
     [JsonPropertyName("chatId")]
     public string ChatId { get; set; } = "";
 

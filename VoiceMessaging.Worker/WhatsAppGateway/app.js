@@ -83,6 +83,30 @@ app.get("/messages", async (req, res) => {
     }
 });
 
+app.get("/unread-messages", async (req, res) => {
+    try {
+        const messages = await whatsapp.getUnreadMessages();
+        res.json(messages);
+    } catch (error) {
+        console.error("Error al consultar mensajes no leídos:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post("/mark-read", async (req, res) => {
+    try {
+        const { chatId } = req.body ?? {};
+
+        await whatsapp.markChatAsRead(chatId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Error al marcar el chat como leído:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.get("/qr", (req, res) => {
     res.sendFile(path.join(__dirname, "qr.html"));
 });

@@ -8,6 +8,7 @@ namespace VoiceMessaging.Worker;
 
 public class Worker : BackgroundService
 {
+    private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
@@ -56,7 +57,9 @@ public class Worker : BackgroundService
         var whatsApp = new WhatsAppService(client);
         var firebase = new FirebaseService(_user);
         await firebase.EnsureUserRegisteredAsync();
+        await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
+        var nextReadReconciliationAt = DateTime.UtcNow.Add(ReadReconciliationInterval);
         string msgError = "";
 
         while (!stoppingToken.IsCancellationRequested)
@@ -74,11 +77,90 @@ public class Worker : BackgroundService
                 await RegisterWorkerLogAsync("warning", "WhatsAppGateway dejó de responder y fue reiniciado por el Worker.", stoppingToken);
             }
 
+            if (DateTime.UtcNow >= nextReadReconciliationAt)
+            {
+                await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
+                nextReadReconciliationAt = DateTime.UtcNow.Add(ReadReconciliationInterval);
+            }
+
             msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
             msgError += await SendPendingReplies(whatsApp, firebase, stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
 
+    }
+
+    private async Task ReconcileUnreadMessagesAsync(
+        WhatsAppService whatsApp,
+        FirebaseService firebase,
+        CancellationToken stoppingToken)
+    {
+        try
+        {
+            var whatsAppUnreadMessages = await whatsApp.GetUnreadMessagesAsync();
+
+            if (whatsAppUnreadMessages.Count == 0)
+            {
+                _logger.LogInformation("Reconciliación de lectura completada. WhatsApp no tiene mensajes pendientes.");
+                return;
+            }
+
+            var firebaseMessages = await firebase.GetAllMessagesAsync();
+            var addedMessages = 0;
+            var readChats = 0;
+            var hasUnreadMessagesInFirebase = firebaseMessages.Any(message => !message.IsRead);
+
+            foreach (var chat in whatsAppUnreadMessages.GroupBy(message => message.ChatId))
+            {
+                var allChatMessagesAreReadInFirebase = true;
+
+                foreach (var whatsAppMessage in chat)
+                {
+                    var firebaseMessage = FindMatchingMessage(firebaseMessages, whatsAppMessage);
+
+                    if (firebaseMessage == null)
+                    {
+                        firebaseMessage = CreateFirebaseMessage(whatsAppMessage);
+                        await firebase.SaveIncomingMessageAsync(firebaseMessage);
+                        firebaseMessages.Add(firebaseMessage);
+                        addedMessages++;
+                        hasUnreadMessagesInFirebase = true;
+                        allChatMessagesAreReadInFirebase = false;
+                        continue;
+                    }
+
+                    if (!firebaseMessage.IsRead)
+                    {
+                        hasUnreadMessagesInFirebase = true;
+                        allChatMessagesAreReadInFirebase = false;
+                    }
+                }
+
+                // sendSeen marca el chat completo. No debe ocultar mensajes que sigan
+                // pendientes de lectura en Firebase.
+                if (allChatMessagesAreReadInFirebase)
+                {
+                    await whatsApp.MarkChatAsReadAsync(chat.Key);
+                    readChats++;
+                }
+            }
+
+            if (hasUnreadMessagesInFirebase)
+                await firebase.SetHasPendingMessagesAsync(true);
+
+            _logger.LogInformation(
+                "Reconciliación de lectura completada. Mensajes recuperados: {added}; chats marcados como leídos: {readChats}.",
+                addedMessages,
+                readChats);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reconciliando mensajes leídos entre Firebase y WhatsApp.");
+            await RegisterWorkerLogAsync(
+                "error",
+                $"Error reconciliando mensajes leídos entre Firebase y WhatsApp: {ex}",
+                stoppingToken);
+        }
     }
 
     private async Task DeleteOldReadMessagesAsync(FirebaseService firebase, CancellationToken stoppingToken)
@@ -106,25 +188,27 @@ public class Worker : BackgroundService
         {
             var messages = await whatsApp.GetMessagesAsync();
 
+            if (messages.Count == 0)
+                return msgError;
+
+            var firebaseMessages = await firebase.GetAllMessagesAsync();
+            var addedMessages = 0;
 
             foreach (var message in messages)
             {
                 try
                 {
-                    var firebaseMessage = new MessageDto
+                    if (FindMatchingMessage(firebaseMessages, message) != null)
                     {
-                        ChatId = message.ChatId,
-                        Phone = message.Phone,
-                        Source = message.Source,
-                        Account = message.Account,
-                        Sender = message.Sender,
-                        Text = message.Text,
-                        Date = message.Date,
-                        IsRead = false
-                    };
+                        _logger.LogDebug("El mensaje {messageId} ya existe en Firebase.", message.Id);
+                        continue;
+                    }
+
+                    var firebaseMessage = CreateFirebaseMessage(message);
 
                     await firebase.SaveIncomingMessageAsync(firebaseMessage);
-                    await firebase.SetHasPendingMessagesAsync(true);
+                    firebaseMessages.Add(firebaseMessage);
+                    addedMessages++;
 
                     _logger.LogInformation("Mensaje guardado en Firebase: {sender} - {text}", firebaseMessage.Sender, firebaseMessage.Text);
                 }
@@ -135,6 +219,9 @@ public class Worker : BackgroundService
             }
             if (!string.IsNullOrEmpty(msgError))
                 throw new Exception(msgError);
+
+            if (addedMessages > 0)
+                await firebase.SetHasPendingMessagesAsync(true);
         }
         catch (Exception ex)
         {
@@ -143,6 +230,34 @@ public class Worker : BackgroundService
         }
 
         return msgError;
+    }
+
+    private static MessageDto CreateFirebaseMessage(WhatsAppIncomingMessageDto message)
+    {
+        return new MessageDto
+        {
+            ExternalMessageId = message.Id,
+            ChatId = message.ChatId,
+            Phone = message.Phone,
+            Source = message.Source,
+            Account = message.Account,
+            Sender = message.Sender,
+            Text = message.Text,
+            Date = message.Date,
+            IsRead = false
+        };
+    }
+
+    private static MessageDto? FindMatchingMessage(
+        IEnumerable<MessageDto> firebaseMessages,
+        WhatsAppIncomingMessageDto whatsAppMessage)
+    {
+        return firebaseMessages.FirstOrDefault(firebaseMessage =>
+            firebaseMessage.ChatId == whatsAppMessage.ChatId &&
+            ((!string.IsNullOrWhiteSpace(whatsAppMessage.Id) &&
+              firebaseMessage.ExternalMessageId == whatsAppMessage.Id) ||
+             (firebaseMessage.Text == whatsAppMessage.Text &&
+              Math.Abs((firebaseMessage.Date - whatsAppMessage.Date).TotalSeconds) <= 2)));
     }
 
     private async Task<string> SendPendingReplies(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)

@@ -178,8 +178,23 @@ function enqueuePendingMessage(message) {
 }
 
 async function recoverUnreadMessages() {
-    const chats = await client.getChats();
+    const unreadMessages = await getUnreadMessages();
     let recoveredCount = 0;
+
+    for (const message of unreadMessages) {
+        if (enqueuePendingMessage(message))
+            recoveredCount++;
+    }
+
+    console.log(`${recoveredCount} mensaje(s) no leído(s) recuperado(s).`);
+}
+
+async function getUnreadMessages() {
+    if (!connected)
+        throw new Error("WhatsApp no está conectado.");
+
+    const chats = await client.getChats();
+    const unreadMessages = [];
 
     for (const chat of chats) {
         const chatId = chat.id?._serialized || "";
@@ -198,9 +213,7 @@ async function recoverUnreadMessages() {
                     continue;
 
                 const incomingMessage = await createIncomingMessage(message, chat.name || chatId);
-
-                if (enqueuePendingMessage(incomingMessage))
-                    recoveredCount++;
+                unreadMessages.push(incomingMessage);
             }
         } catch (error) {
             console.error(`Error al recuperar mensajes no leídos de ${chatId}:`);
@@ -208,7 +221,17 @@ async function recoverUnreadMessages() {
         }
     }
 
-    console.log(`${recoveredCount} mensaje(s) no leído(s) recuperado(s).`);
+    return unreadMessages;
+}
+
+async function markChatAsRead(chatId) {
+    if (!connected)
+        throw new Error("WhatsApp no está conectado.");
+
+    if (!chatId)
+        throw new Error("El chat es obligatorio.");
+
+    await client.sendSeen(chatId);
 }
 
 function normalizePhone(phone) {
@@ -244,17 +267,6 @@ async function getPendingMessages() {
 
     for (const message of messages)
         pendingMessageIds.delete(`${message.chatId}:${message.id}`);
-
-    const chatIds = [...new Set(messages.map(message => message.chatId))];
-
-    for (const chatId of chatIds) {
-        try {
-            await client.sendSeen(chatId);
-        } catch (error) {
-            console.error(`No se pudo marcar como leído el chat ${chatId}:`);
-            console.error(error);
-        }
-    }
 
     return messages;
 
@@ -328,6 +340,8 @@ module.exports = {
     getClient() { return client; },
     sendMessage,
     getPendingMessages,
+    getUnreadMessages,
+    markChatAsRead,
     getQr,
     saveUser,
     clearUser,
