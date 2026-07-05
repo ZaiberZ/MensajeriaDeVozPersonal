@@ -21,7 +21,8 @@ PrivilegesRequired=admin
 Source: "{#InstallerSource}"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
-Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/status"
+Name: "{commondesktop}\Voice Messaging QR"; Filename: "http://localhost:3000/status"
+Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/app-status"
 
 [Run]
 Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated

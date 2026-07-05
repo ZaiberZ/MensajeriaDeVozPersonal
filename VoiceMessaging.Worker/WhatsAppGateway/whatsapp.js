@@ -38,6 +38,9 @@ const User = { "Phone": "", "FullName": "", "Email": "", IsRegistered: false };
 function getBundledChromePath() {
     const cachePath = path.join(__dirname, ".cache", "chrome");
 
+    if (!fs.existsSync(cachePath))
+        return null;
+
     const versions = fs.readdirSync(cachePath);
 
     for (const version of versions) {
@@ -47,7 +50,41 @@ function getBundledChromePath() {
             return chromePath;
     }
 
-    throw new Error("No se encontró chrome.exe dentro de .cache.");
+    return null;
+}
+
+function getInstalledChromePath() {
+    const candidates = [
+        process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application", "chrome.exe"),
+        process.env["PROGRAMFILES(X86)"] && path.join(process.env["PROGRAMFILES(X86)"], "Google", "Chrome", "Application", "chrome.exe"),
+        process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe")
+    ].filter(Boolean);
+
+    return candidates.find(candidate => fs.existsSync(candidate)) ?? null;
+}
+
+function getChromePath() {
+    const configuredPath = process.env.CHROME_EXECUTABLE_PATH?.trim();
+
+    if (configuredPath) {
+        if (!fs.existsSync(configuredPath))
+            throw new Error(`CHROME_EXECUTABLE_PATH no existe: ${configuredPath}`);
+
+        return configuredPath;
+    }
+
+    const bundledChromePath = getBundledChromePath();
+
+    if (bundledChromePath)
+        return bundledChromePath;
+
+    const installedChromePath = getInstalledChromePath();
+
+    if (installedChromePath)
+        return installedChromePath;
+
+    throw new Error(
+        "No se encontró Chrome. Define CHROME_EXECUTABLE_PATH o instala Chrome dentro de WhatsAppGateway\\.cache.");
 }
 
 
@@ -56,7 +93,7 @@ const client = new Client({
 
     puppeteer: {
         headless: hasReadySession,
-        executablePath: getBundledChromePath(),
+        executablePath: getChromePath(),
         args: [
             "--no-sandbox",
             "--disable-setuid-sandbox",
