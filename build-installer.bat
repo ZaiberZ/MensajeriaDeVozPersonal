@@ -69,6 +69,16 @@ if exist "%PUBLISH_DIR%" (
 )
 
 echo.
+echo Copiando Install NodeJS.bat a la carpeta publish...
+copy /Y "%SOLUTION_DIR%Installer\Install NodeJS.bat" "%OUTPUT_DIR%\"
+
+if errorlevel 1 (
+    echo Error copiando Install NodeJS.bat.
+    pause
+    exit /b 1
+)
+
+echo.
 echo ================================
 echo  Instalador generado correctamente
 echo ================================
