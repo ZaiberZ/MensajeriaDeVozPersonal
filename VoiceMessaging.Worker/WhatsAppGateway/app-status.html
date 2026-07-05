@@ -25,6 +25,12 @@
         button:disabled { opacity: .55; cursor: wait; }
         #detail { min-height: 24px; margin-top: 18px; color: #9aa8b5; }
         .updated { color: #748392; font-size: 13px; margin-top: 24px; }
+        .logs { margin-top: 28px; }
+        .logs h2 { margin-top: 0; }
+        .log-list { display: grid; gap: 12px; margin: 16px 0 0; padding: 0; list-style: none; }
+        .log-entry { border-left: 4px solid #f05252; padding: 10px 12px; background: #11171d; border-radius: 6px; }
+        .log-meta { color: #9aa8b5; font-size: 13px; }
+        .log-message { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
     </style>
 </head>
 <body>
@@ -35,14 +41,21 @@
         <article class="card"><div class="label">Gateway</div><div id="gateway" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Servicio Worker</div><div id="worker" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">WhatsApp</div><div id="whatsapp" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article class="card"><div class="label">Teléfono del usuario</div><div id="userPhone" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Mensajes por leer en Alexa</div><div id="alexa" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
     </section>
     <nav class="actions">
         <a href="/qr">Ver código QR</a>
+        <a href="/userdata">Registrar o consultar teléfono</a>
         <a href="/status" target="_blank" rel="noopener">Estado del gateway</a>
         <button id="logoutButton" type="button">Cerrar sesión en WhatsApp</button>
     </nav>
     <p id="detail"></p>
+    <section id="errorLogsSection" class="card logs" hidden>
+        <h2>Últimos errores</h2>
+        <p class="subtitle">Los 10 registros de error más recientes del Gateway y del Worker.</p>
+        <ol id="errorLogs" class="log-list"></ol>
+    </section>
     <p id="updated" class="updated"></p>
 </main>
 <script src="/app-status.js"></script>

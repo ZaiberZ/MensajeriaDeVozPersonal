@@ -4,6 +4,43 @@ const setStatus = (id, kind, text) => {
     element.querySelector("span:last-child").textContent = text;
 };
 
+const renderErrorLogs = logs => {
+    const section = document.getElementById("errorLogsSection");
+    const list = document.getElementById("errorLogs");
+
+    list.replaceChildren();
+    section.hidden = logs.length === 0;
+
+    for (const log of logs) {
+        const entry = document.createElement("li");
+        entry.className = "log-entry";
+
+        const meta = document.createElement("div");
+        meta.className = "log-meta";
+        meta.textContent = `${new Date(log.timestamp).toLocaleString()} · ${log.source || "Sin origen"}`;
+
+        const message = document.createElement("p");
+        message.className = "log-message";
+        message.textContent = log.message || "Error sin detalle.";
+
+        entry.append(meta, message);
+        list.append(entry);
+    }
+};
+
+async function refreshErrorLogs() {
+    try {
+        const response = await fetch("/logs?level=error&limit=10", { cache: "no-store" });
+        if (!response.ok)
+            throw new Error("HTTP " + response.status);
+
+        const result = await response.json();
+        renderErrorLogs(Array.isArray(result.logs) ? result.logs.slice(0, 10) : []);
+    } catch (error) {
+        console.error("No fue posible consultar los logs de error:", error);
+    }
+}
+
 async function refreshStatus() {
     try {
         const response = await fetch("/app-status-data", { cache: "no-store" });
@@ -15,6 +52,7 @@ async function refreshStatus() {
         setStatus("gateway", status.gatewayRunning ? "ok" : "bad", status.gatewayRunning ? "Ejecutándose" : "Sin respuesta");
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
+        setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
 
         if (!status.workerRunning)
             setStatus("alexa", "warn", "No disponible");
@@ -29,6 +67,7 @@ async function refreshStatus() {
 
         document.getElementById("detail").textContent = "Último reporte del Worker: " + heartbeat;
         document.getElementById("updated").textContent = "Actualizado: " + new Date().toLocaleTimeString();
+        await refreshErrorLogs();
     } catch (error) {
         setStatus("gateway", "bad", "Sin respuesta");
         document.getElementById("detail").textContent = "No fue posible actualizar el estado: " + error.message;

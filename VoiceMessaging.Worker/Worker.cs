@@ -41,10 +41,20 @@ public class Worker : BackgroundService
             await Task.Delay(5000, stoppingToken);
         }
 
+        var client = new HttpClient { BaseAddress = new Uri(_configuration["WhatsAppGateway:Url"]!) };
+        var whatsApp = new WhatsAppService(client);
+        var missingUserWarningLogged = false;
+
         while (string.IsNullOrWhiteSpace(_user.Phone) && !stoppingToken.IsCancellationRequested)
         {
-            _logger.LogWarning("El gateway está disponible, pero el usuario todavía no tiene un teléfono registrado.");
-            await Task.Delay(3000, stoppingToken);
+            if (!missingUserWarningLogged)
+            {
+                _logger.LogWarning("El gateway está disponible, pero el usuario todavía no tiene un teléfono registrado.");
+                missingUserWarningLogged = true;
+            }
+
+            await ReportWorkerWaitingForUserAsync(whatsApp, stoppingToken);
+            await Task.Delay(5000, stoppingToken);
 
             if (!await IsGatewayRunningAsync(stoppingToken))
                 await EnsureWhatsAppGatewayIsRunningAsync(stoppingToken);
@@ -53,8 +63,6 @@ public class Worker : BackgroundService
         if (stoppingToken.IsCancellationRequested)
             return;
 
-        var client = new HttpClient { BaseAddress = new Uri(_configuration["WhatsAppGateway:Url"]!) };
-        var whatsApp = new WhatsAppService(client);
         var firebase = new FirebaseService(_user);
         await firebase.EnsureUserRegisteredAsync();
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
@@ -92,7 +100,23 @@ public class Worker : BackgroundService
 
     }
 
-    private async Task ReportWorkerStatusAsync(        WhatsAppService whatsApp,        FirebaseService firebase,        CancellationToken stoppingToken)
+    private async Task ReportWorkerWaitingForUserAsync(WhatsAppService whatsApp, CancellationToken stoppingToken)
+    {
+        try
+        {
+            await whatsApp.ReportWorkerStatusAsync(false, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "No fue posible actualizar el estado inicial del Worker en el gateway.");
+        }
+    }
+
+    private async Task ReportWorkerStatusAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
     {
         try
         {
@@ -109,10 +133,7 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ReconcileUnreadMessagesAsync(
-        WhatsAppService whatsApp,
-        FirebaseService firebase,
-        CancellationToken stoppingToken)
+    private async Task ReconcileUnreadMessagesAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
     {
         try
         {

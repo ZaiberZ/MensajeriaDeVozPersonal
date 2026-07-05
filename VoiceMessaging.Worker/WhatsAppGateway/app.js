@@ -47,6 +47,7 @@ app.get("/app-status-data", (req, res) => {
         gatewayRunning: true,
         workerRunning,
         whatsappConnected: whatsappStatus.connected === true,
+        userPhoneRegistered: Boolean(whatsappStatus.User?.Phone?.trim()),
         hasPendingMessages: workerRunning ? workerStatus.hasPendingMessages : null,
         lastWorkerHeartbeat: workerStatus.lastHeartbeat?.toISOString() ?? null
     });
