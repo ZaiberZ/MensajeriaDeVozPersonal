@@ -57,6 +57,7 @@ public class Worker : BackgroundService
         var whatsApp = new WhatsAppService(client);
         var firebase = new FirebaseService(_user);
         await firebase.EnsureUserRegisteredAsync();
+        await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
         await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
         var nextReadReconciliationAt = DateTime.UtcNow.Add(ReadReconciliationInterval);
@@ -85,9 +86,27 @@ public class Worker : BackgroundService
 
             msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
             msgError += await SendPendingReplies(whatsApp, firebase, stoppingToken);
+            await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
 
+    }
+
+    private async Task ReportWorkerStatusAsync(        WhatsAppService whatsApp,        FirebaseService firebase,        CancellationToken stoppingToken)
+    {
+        try
+        {
+            var hasPendingMessages = await firebase.HasPendingMessagesAsync();
+            await whatsApp.ReportWorkerStatusAsync(hasPendingMessages, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "No fue posible actualizar el estado del Worker en el gateway.");
+        }
     }
 
     private async Task ReconcileUnreadMessagesAsync(

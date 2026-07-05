@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Estado de Voice Messaging</title>
+    <style>
+        :root { color-scheme: dark; font-family: Segoe UI, Arial, sans-serif; }
+        body { margin: 0; background: #101418; color: #edf2f7; }
+        main { width: min(900px, calc(100% - 32px)); margin: 40px auto; }
+        h1 { margin-bottom: 8px; }
+        .subtitle { color: #9aa8b5; margin-top: 0; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 28px 0; }
+        .card { background: #182028; border: 1px solid #2b3945; border-radius: 14px; padding: 18px; }
+        .label { color: #9aa8b5; font-size: 14px; }
+        .value { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 20px; font-weight: 650; }
+        .dot { width: 11px; height: 11px; border-radius: 50%; background: #7d8994; }
+        .ok .dot { background: #35c978; box-shadow: 0 0 10px #35c97888; }
+        .bad .dot { background: #f05252; box-shadow: 0 0 10px #f0525288; }
+        .warn .dot { background: #f2b84b; box-shadow: 0 0 10px #f2b84b88; }
+        .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+        a, button { border: 0; border-radius: 9px; padding: 11px 16px; font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+        a { background: #2673dd; color: white; }
+        button { background: #b83232; color: white; }
+        button:disabled { opacity: .55; cursor: wait; }
+        #detail { min-height: 24px; margin-top: 18px; color: #9aa8b5; }
+        .updated { color: #748392; font-size: 13px; margin-top: 24px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Estado de Voice Messaging</h1>
+    <p class="subtitle">Vista operativa del Worker, WhatsApp y Alexa.</p>
+    <section class="grid">
+        <article class="card"><div class="label">Gateway</div><div id="gateway" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article class="card"><div class="label">Servicio Worker</div><div id="worker" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article class="card"><div class="label">WhatsApp</div><div id="whatsapp" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article class="card"><div class="label">Mensajes por leer en Alexa</div><div id="alexa" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+    </section>
+    <nav class="actions">
+        <a href="/qr">Ver código QR</a>
+        <a href="/status" target="_blank" rel="noopener">Estado del gateway</a>
+        <button id="logoutButton" type="button">Cerrar sesión en WhatsApp</button>
+    </nav>
+    <p id="detail"></p>
+    <p id="updated" class="updated"></p>
+</main>
+<script src="/app-status.js"></script>
+</body>
+</html>

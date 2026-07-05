@@ -234,6 +234,18 @@ async function markChatAsRead(chatId) {
     await client.sendSeen(chatId);
 }
 
+async function logout() {
+    try {
+        await client.logout();
+    } finally {
+        connected = false;
+        lastQr = null;
+
+        if (fs.existsSync(readyFilePath))
+            fs.unlinkSync(readyFilePath);
+    }
+}
+
 function normalizePhone(phone) {
 
     return phone
@@ -342,6 +354,7 @@ module.exports = {
     getPendingMessages,
     getUnreadMessages,
     markChatAsRead,
+    logout,
     getQr,
     saveUser,
     clearUser,

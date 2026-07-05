@@ -55,6 +55,16 @@ public class WhatsAppService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task ReportWorkerStatusAsync(bool hasPendingMessages, CancellationToken stoppingToken)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            "/worker-status",
+            new { hasPendingMessages },
+            stoppingToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task SendReplyAsync(ReplyMessageDto reply)
     {
         var request = new

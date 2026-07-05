@@ -8,6 +8,11 @@ logger.installConsoleCapture();
 const whatsapp = require("./whatsapp");
 
 const app = express();
+const workerStatus = {
+    lastHeartbeat: null,
+    hasPendingMessages: false
+};
+const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
 
 app.use(express.static(__dirname));
 app.use(cors());
@@ -24,6 +29,31 @@ app.get("/", (req, res) => {
 
 app.get("/status", (req, res) => {
     res.json(whatsapp.isConnected());
+});
+
+app.post("/worker-status", (req, res) => {
+    workerStatus.lastHeartbeat = new Date();
+    workerStatus.hasPendingMessages = req.body?.hasPendingMessages === true;
+
+    res.json({ success: true });
+});
+
+app.get("/app-status-data", (req, res) => {
+    const whatsappStatus = whatsapp.isConnected();
+    const workerRunning = workerStatus.lastHeartbeat !== null &&
+        Date.now() - workerStatus.lastHeartbeat.getTime() <= workerHeartbeatTimeoutMs;
+
+    res.json({
+        gatewayRunning: true,
+        workerRunning,
+        whatsappConnected: whatsappStatus.connected === true,
+        hasPendingMessages: workerRunning ? workerStatus.hasPendingMessages : null,
+        lastWorkerHeartbeat: workerStatus.lastHeartbeat?.toISOString() ?? null
+    });
+});
+
+app.get("/app-status", (req, res) => {
+    res.sendFile(path.join(__dirname, "app-status.html"));
 });
 
 app.get("/logs", (req, res) => {
@@ -102,6 +132,26 @@ app.post("/mark-read", async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error("Error al marcar el chat como leído:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post("/logout", async (req, res) => {
+    const origin = req.get("origin");
+    const expectedOrigin = `${req.protocol}://${req.get("host")}`;
+
+    if (origin && origin !== expectedOrigin)
+        return res.status(403).json({ success: false, error: "Origen no permitido." });
+
+    try {
+        await whatsapp.logout();
+        res.json({ success: true, message: "Sesión de WhatsApp cerrada." });
+
+        // El Worker volverá a iniciar el gateway sin la sesión anterior y mostrará un QR nuevo.
+        setTimeout(() => process.exit(0), 1000);
+    } catch (error) {
+        console.error("Error al cerrar la sesión de WhatsApp:");
         console.error(error);
         res.status(500).json({ success: false, error: error.message });
     }
