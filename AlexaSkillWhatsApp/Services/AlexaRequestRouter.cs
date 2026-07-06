@@ -207,7 +207,8 @@ public class AlexaRequestRouter
     {
         return !string.IsNullOrWhiteSpace(state.CurrentMessageId) &&
             !string.IsNullOrWhiteSpace(state.CurrentChatId) &&
-            !string.IsNullOrWhiteSpace(state.CurrentPhone);
+            (!string.IsNullOrWhiteSpace(state.CurrentPhone) ||
+             string.Equals(state.CurrentSource, "Airbnb", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string CancelReply(AlexaRequest request)
@@ -235,7 +236,7 @@ public class AlexaRequestRouter
                 "No hay una respuesta pendiente por enviar. Primero di responder.", state);
         }
 
-        if (string.IsNullOrWhiteSpace(state.CurrentPhone))
+        if (string.IsNullOrWhiteSpace(state.CurrentPhone) && !string.Equals(state.CurrentSource, "Airbnb", StringComparison.OrdinalIgnoreCase))
         {
             context.Logger.LogLine("No se guardó la respuesta porque el estado de la conversación no tiene destinatario.");
 

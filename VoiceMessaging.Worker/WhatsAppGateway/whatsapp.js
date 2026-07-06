@@ -118,7 +118,7 @@ function getQr() {
 client.on("qr", async (qr) => {
     lastQr = await qrcode.toDataURL(qr);
 
-    console.log("QR generado. Abre http://localhost:3000/qr para escanearlo.");
+    console.log("QR generado. Abre http://localhost:3000/whatsapp/qr para escanearlo.");
 });
 
 client.on("ready", async () => {

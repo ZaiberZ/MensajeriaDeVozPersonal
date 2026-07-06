@@ -9,6 +9,13 @@ const setWhatsAppActions = connected => {
     document.getElementById("logoutButton").hidden = !connected;
 };
 
+const setAirbnbActions = status => {
+    const toggleButton = document.getElementById("airbnbToggleButton");
+    toggleButton.dataset.enabled = status.enabled ? "true" : "false";
+    toggleButton.textContent = status.enabled ? "Deshabilitar Airbnb" : "Habilitar Airbnb";
+    document.getElementById("airbnbLoginLink").hidden = !status.enabled;
+};
+
 const renderErrorLogs = logs => {
     const section = document.getElementById("errorLogsSection");
     const list = document.getElementById("errorLogs");
@@ -58,6 +65,12 @@ async function refreshStatus() {
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
         setWhatsAppActions(status.whatsappConnected);
+        setStatus("airbnbEnabled", status.airbnb.enabled ? "ok" : "warn", status.airbnb.enabled ? "Habilitado" : "Deshabilitado");
+        setStatus(
+            "airbnbSession",
+            status.airbnb.authenticated ? "ok" : status.airbnb.enabled ? "warn" : "bad",
+            status.airbnb.authenticated ? "Autenticada" : status.airbnb.enabled ? "Requiere login" : "No iniciada");
+        setAirbnbActions(status.airbnb);
         setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
 
         if (!status.workerRunning)
@@ -108,6 +121,31 @@ document.getElementById("clearLogsButton").addEventListener("click", async () =>
     }
 });
 
+document.getElementById("airbnbToggleButton").addEventListener("click", async () => {
+    const button = document.getElementById("airbnbToggleButton");
+    const enabled = button.dataset.enabled !== "true";
+    button.disabled = true;
+
+    try {
+        const response = await fetch("/airbnb/enabled", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled })
+        });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.message || "HTTP " + response.status);
+
+        document.getElementById("detail").textContent = enabled ? "Airbnb fue habilitado." : "Airbnb fue deshabilitado.";
+        await refreshStatus();
+    } catch (error) {
+        document.getElementById("detail").textContent = "No fue posible actualizar Airbnb: " + error.message;
+    } finally {
+        button.disabled = false;
+    }
+});
+
 document.getElementById("logoutButton").addEventListener("click", async () => {
     if (!window.confirm("¿Deseas cerrar la sesión actual de WhatsApp? Será necesario escanear un nuevo código QR."))
         return;
@@ -116,7 +154,7 @@ document.getElementById("logoutButton").addEventListener("click", async () => {
     button.disabled = true;
 
     try {
-        const response = await fetch("/logout", { method: "POST" });
+        const response = await fetch("/whatsapp/logout", { method: "POST" });
         if (!response.ok) {
             const body = await response.json().catch(() => ({}));
             throw new Error(body.error || "HTTP " + response.status);

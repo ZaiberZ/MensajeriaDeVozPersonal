@@ -43,20 +43,24 @@
         <img class="app-icon" src="/AlexaWhatsApp.png" alt="Alexa WhatsApp">
         <div>
             <h1>Estado de Voice Messaging</h1>
-            <p class="subtitle">Vista operativa del Worker, WhatsApp y Alexa.</p>
+            <p class="subtitle">Vista operativa del Worker, WhatsApp, Airbnb y Alexa.</p>
         </div>
     </header>
     <section class="grid">
         <article class="card"><div class="label">Gateway</div><div id="gateway" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Servicio Worker</div><div id="worker" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">WhatsApp</div><div id="whatsapp" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article class="card"><div class="label">Airbnb</div><div id="airbnbEnabled" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article class="card"><div class="label">Sesión Airbnb</div><div id="airbnbSession" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Teléfono del usuario</div><div id="userPhone" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Mensajes por leer en Alexa</div><div id="alexa" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
     </section>
     <nav class="actions">
-        <a id="qrLink" href="/qr">Ver código QR</a>
-        <a href="/userdata">Registrar o consultar teléfono</a>
-        <a href="/status" target="_blank" rel="noopener">Estado del gateway</a>
+        <a id="qrLink" href="/whatsapp/qr">Ver código QR</a>
+        <a href="/whatsapp/userdata">Registrar o consultar teléfono</a>
+        <a href="/whatsapp/status" target="_blank" rel="noopener">Estado de WhatsApp</a>
+        <button id="airbnbToggleButton" type="button">Habilitar Airbnb</button>
+        <a id="airbnbLoginLink" href="/airbnb/login" target="_blank" rel="noopener" hidden>Iniciar sesión en Airbnb</a>
         <button id="viewAllLogsButton" type="button">Ver todos los logs</button>
         <button id="clearLogsButton" class="danger" type="button">Limpiar logs</button>
         <button id="logoutButton" class="danger" type="button" hidden>Cerrar sesión en WhatsApp</button>

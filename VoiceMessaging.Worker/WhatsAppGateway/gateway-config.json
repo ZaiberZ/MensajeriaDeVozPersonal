@@ -1,0 +1,9 @@
+{
+  "FirebaseBaseUrl": "https://voicemessaginghub-default-rtdb.firebaseio.com",
+  "Airbnb": {
+    "Enabled": true,
+    "Headless": false,
+    "LoginUrl": "https://www.airbnb.com/login",
+    "MessagesUrl": "https://www.airbnb.com/hosting/inbox"
+  }
+}

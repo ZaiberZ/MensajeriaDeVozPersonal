@@ -45,6 +45,10 @@ public class Worker : BackgroundService
 
         var client = new HttpClient { BaseAddress = new Uri(_configuration["WhatsAppGateway:Url"]!) };
         var whatsApp = new WhatsAppService(client);
+        var airbnbClient = new HttpClient { BaseAddress = new Uri(_configuration["AirbnbGateway:BaseUrl"] ?? _configuration["WhatsAppGateway:Url"]!) };
+        var airbnb = new AirbnbService(airbnbClient);
+        var airbnbGatewayEnabled = _configuration.GetValue<bool>("AirbnbGateway:Enabled");
+        var airbnbCheckInterval = TimeSpan.FromSeconds(Math.Max(10, _configuration.GetValue("AirbnbGateway:CheckIntervalSeconds", 60)));
         var missingUserWarningLogged = false;
 
         while (string.IsNullOrWhiteSpace(_user.Phone) && !stoppingToken.IsCancellationRequested)
@@ -71,6 +75,7 @@ public class Worker : BackgroundService
         var initialReadReconciliationCompleted = await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
         var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
+        var nextAirbnbCheckAt = DateTime.UtcNow;
         string msgError = "";
 
         while (!stoppingToken.IsCancellationRequested)
@@ -94,6 +99,26 @@ public class Worker : BackgroundService
                 nextReadReconciliationAt = DateTime.UtcNow.Add(readReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
             }
 
+            if (airbnbGatewayEnabled && DateTime.UtcNow >= nextAirbnbCheckAt)
+            {
+                nextAirbnbCheckAt = DateTime.UtcNow.Add(airbnbCheckInterval);
+
+                try
+                {
+                    if (await firebase.IsAirbnbEnabledAsync(stoppingToken))
+                        msgError += await SaveNewAirbnbMessages(airbnb, firebase, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "No fue posible consultar o procesar Airbnb. WhatsApp continuará funcionando.");
+                    await RegisterWorkerLogAsync("error", $"No fue posible consultar o procesar Airbnb: {ex}", stoppingToken);
+                }
+            }
+
             bool hasPendingReplies;
 
             try
@@ -112,7 +137,7 @@ public class Worker : BackgroundService
             }
 
             msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
-            msgError += await SendPendingReplies(whatsApp, firebase, hasPendingReplies, stoppingToken);
+            msgError += await SendPendingReplies(whatsApp, airbnb, firebase, hasPendingReplies, airbnbGatewayEnabled, stoppingToken);
             await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
@@ -371,7 +396,69 @@ public class Worker : BackgroundService
               Math.Abs((firebaseMessage.Date - whatsAppMessage.Date).TotalSeconds) <= 2)));
     }
 
-    private async Task<string> SendPendingReplies(WhatsAppService whatsApp, FirebaseService firebase, bool hasPendingReplies, CancellationToken stoppingToken)
+    private async Task<string> SaveNewAirbnbMessages(AirbnbService airbnb, FirebaseService firebase, CancellationToken stoppingToken)
+    {
+        var errors = "";
+
+        try
+        {
+            var messages = await airbnb.GetMessagesAsync(stoppingToken);
+
+            if (messages.Count == 0)
+                return errors;
+
+            var firebaseMessages = await firebase.GetAllMessagesAsync();
+            var addedMessages = 0;
+
+            foreach (var message in messages)
+            {
+                try
+                {
+                    var alreadyExists = firebaseMessages.Any(savedMessage =>
+                        savedMessage.ChatId == message.ChatId &&
+                        savedMessage.Text == message.Text &&
+                        Math.Abs((savedMessage.Date - message.Date).TotalSeconds) <= 2);
+
+                    if (alreadyExists)
+                        continue;
+
+                    var firebaseMessage = new MessageDto
+                    {
+                        ChatId = message.ChatId,
+                        Phone = "",
+                        Source = "Airbnb",
+                        Account = "Airbnb",
+                        Sender = message.Sender,
+                        Text = message.Text,
+                        Date = message.Date,
+                        IsRead = false
+                    };
+
+                    await firebase.SaveIncomingMessageAsync(firebaseMessage);
+                    firebaseMessages.Add(firebaseMessage);
+                    addedMessages++;
+                    _logger.LogInformation("Mensaje de Airbnb guardado en Firebase: {sender} - {text}", firebaseMessage.Sender, firebaseMessage.Text);
+                }
+                catch (Exception ex)
+                {
+                    errors += ex.Message + " | ";
+                }
+            }
+
+            if (addedMessages > 0)
+                await firebase.SetHasPendingMessagesAsync(true);
+        }
+        catch (Exception ex)
+        {
+            errors += ex.Message + " | ";
+            _logger.LogError(ex, "Error guardando mensajes nuevos de Airbnb.");
+            await RegisterWorkerLogAsync("error", $"Error guardando mensajes nuevos de Airbnb: {ex}", stoppingToken);
+        }
+
+        return errors;
+    }
+
+    private async Task<string> SendPendingReplies(WhatsAppService whatsApp, AirbnbService airbnb, FirebaseService firebase, bool hasPendingReplies, bool airbnbGatewayEnabled, CancellationToken stoppingToken)
     {
         string msgError = "";
         try
@@ -387,7 +474,14 @@ public class Worker : BackgroundService
                 try
                 {
 
-                    if (string.IsNullOrWhiteSpace(reply.Phone))
+                    if (string.Equals(reply.Source, "Airbnb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!airbnbGatewayEnabled || !await firebase.IsAirbnbEnabledAsync(stoppingToken))
+                            throw new InvalidOperationException("Airbnb está deshabilitado; la respuesta permanecerá pendiente.");
+
+                        await airbnb.SendReplyAsync(reply, stoppingToken);
+                    }
+                    else if (string.IsNullOrWhiteSpace(reply.Phone))
                     {
                         _logger.LogWarning("No se pudo enviar respuesta {id}. No tiene teléfono.", reply.Sender);
                         await RegisterWorkerLogAsync("warning", $"No se pudo enviar la respuesta de {reply.Sender}. No tiene teléfono.", stoppingToken);
@@ -395,8 +489,10 @@ public class Worker : BackgroundService
                         allRepliesProcessed = false;
                         continue;
                     }
-
-                    await whatsApp.SendReplyAsync(reply);
+                    else
+                    {
+                        await whatsApp.SendReplyAsync(reply);
+                    }
 
                     await firebase.DeleteReplyAsync(reply.Id);
 
@@ -503,7 +599,7 @@ public class Worker : BackgroundService
                 Timeout = TimeSpan.FromSeconds(3)
             };
 
-            var response = await httpClient.GetAsync("/status", stoppingToken);
+            var response = await httpClient.GetAsync("/whatsapp/status", stoppingToken);
 
             if (!response.IsSuccessStatusCode)
                 return false;

@@ -6,6 +6,7 @@ const logger = require("./logger");
 logger.installConsoleCapture();
 
 const whatsapp = require("./whatsapp");
+const airbnb = require("./airbnb");
 
 const app = express();
 const workerStatus = {
@@ -18,16 +19,20 @@ app.use(express.static(__dirname));
 app.use(cors());
 app.use(express.json());
 
-whatsapp.initialize().catch(error => {
-    console.error("No se pudo inicializar WhatsApp:");
-    console.error(error);
-});
+airbnb.configure({ getUser: () => whatsapp.isConnected().User });
+
+whatsapp.initialize()
+    .then(() => airbnb.startAirbnb())
+    .catch(error => {
+        console.error("No se pudo completar la inicialización del Gateway:");
+        console.error(error);
+    });
 
 app.get("/", (req, res) => {
-    res.send("WhatsApp Gateway funcionando.");
+    res.send("Voice Messaging Gateway funcionando.");
 });
 
-app.get("/status", (req, res) => {
+app.get("/whatsapp/status", (req, res) => {
     res.json(whatsapp.isConnected());
 });
 
@@ -38,8 +43,9 @@ app.post("/worker-status", (req, res) => {
     res.json({ success: true });
 });
 
-app.get("/app-status-data", (req, res) => {
+app.get("/app-status-data", async (req, res) => {
     const whatsappStatus = whatsapp.isConnected();
+    const airbnbStatus = await airbnb.getAirbnbStatus();
     const workerRunning = workerStatus.lastHeartbeat !== null &&
         Date.now() - workerStatus.lastHeartbeat.getTime() <= workerHeartbeatTimeoutMs;
 
@@ -47,6 +53,7 @@ app.get("/app-status-data", (req, res) => {
         gatewayRunning: true,
         workerRunning,
         whatsappConnected: whatsappStatus.connected === true,
+        airbnb: airbnbStatus,
         userPhoneRegistered: Boolean(whatsappStatus.User?.Phone?.trim()),
         hasPendingMessages: workerRunning ? workerStatus.hasPendingMessages : null,
         lastWorkerHeartbeat: workerStatus.lastHeartbeat?.toISOString() ?? null
@@ -55,6 +62,64 @@ app.get("/app-status-data", (req, res) => {
 
 app.get("/app-status", (req, res) => {
     res.sendFile(path.join(__dirname, "app-status.html"));
+});
+
+app.get("/airbnb/status", async (req, res) => {
+    try {
+        res.json(await airbnb.getAirbnbStatus());
+    } catch (error) {
+        console.error("Error al consultar el estado de Airbnb:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.get("/airbnb/login", async (req, res) => {
+    try {
+        await airbnb.openAirbnbLogin();
+        res.json({ success: true, message: "Airbnb login opened" });
+    } catch (error) {
+        res.status(409).json({ success: false, message: error.message });
+    }
+});
+
+app.get("/airbnb/messages", async (req, res) => {
+    try {
+        res.json(await airbnb.getAirbnbMessages());
+    } catch (error) {
+        console.error("Error al consultar mensajes de Airbnb:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post("/airbnb/send", async (req, res) => {
+    try {
+        const { chatId, text } = req.body ?? {};
+        const result = await airbnb.sendAirbnbMessage(chatId, text);
+        res.status(result.success ? 200 : 501).json(result);
+    } catch (error) {
+        console.error("Error al enviar mensaje de Airbnb:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.put("/airbnb/enabled", async (req, res) => {
+    const origin = req.get("origin");
+    const expectedOrigin = `${req.protocol}://${req.get("host")}`;
+
+    if (origin && origin !== expectedOrigin)
+        return res.status(403).json({ success: false, message: "Origen no permitido." });
+
+    try {
+        const status = await airbnb.setAirbnbEnabled(req.body?.enabled === true);
+        res.json({ success: true, status });
+    } catch (error) {
+        console.error("Error al actualizar la configuración de Airbnb:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 });
 
 app.get("/logs", (req, res) => {
@@ -90,7 +155,7 @@ app.listen(PORT, () => {
     console.log("");
 });
 
-app.post("/send", async (req, res) => {
+app.post("/whatsapp/send", async (req, res) => {
     try {
         const { chatId, phone, text } = req.body;
 
@@ -103,7 +168,7 @@ app.post("/send", async (req, res) => {
     }
 });
 
-app.get("/messages", async (req, res) => {
+app.get("/whatsapp/messages", async (req, res) => {
     try {
         const messages = await whatsapp.getPendingMessages();
         res.json(messages);
@@ -114,7 +179,7 @@ app.get("/messages", async (req, res) => {
     }
 });
 
-app.get("/unread-messages", async (req, res) => {
+app.get("/whatsapp/unread-messages", async (req, res) => {
     try {
         const messages = await whatsapp.getUnreadMessages();
         res.json(messages);
@@ -128,7 +193,7 @@ app.get("/unread-messages", async (req, res) => {
     }
 });
 
-app.post("/mark-read", async (req, res) => {
+app.post("/whatsapp/mark-read", async (req, res) => {
     try {
         const { chatId } = req.body ?? {};
 
@@ -141,7 +206,7 @@ app.post("/mark-read", async (req, res) => {
     }
 });
 
-app.post("/logout", async (req, res) => {
+app.post("/whatsapp/logout", async (req, res) => {
     const origin = req.get("origin");
     const expectedOrigin = `${req.protocol}://${req.get("host")}`;
 
@@ -176,11 +241,11 @@ app.delete("/logs", (req, res) => {
     }
 });
 
-app.get("/qr", (req, res) => {
+app.get("/whatsapp/qr", (req, res) => {
     res.sendFile(path.join(__dirname, "qr.html"));
 });
 
-app.get("/qr-data", (req, res) => {
+app.get("/whatsapp/qr-data", (req, res) => {
     const qr = whatsapp.getQr();
 
     if (!qr) {
@@ -193,11 +258,11 @@ app.get("/qr-data", (req, res) => {
     res.json({ qr });
 });
 
-app.get("/userdata", (req, res) => {
+app.get("/whatsapp/userdata", (req, res) => {
     res.sendFile(path.join(__dirname, "userdata.html"));
 });
 
-app.post("/setup-user", (req, res) => {
+app.post("/whatsapp/setup-user", (req, res) => {
     try {
         console.log("Guardando usuario...");
         whatsapp.saveUser(req.body);
@@ -213,7 +278,7 @@ app.post("/setup-user", (req, res) => {
     }
 });
 
-app.delete("/setup-user", (req, res) => {
+app.delete("/whatsapp/setup-user", (req, res) => {
     try {
         console.log("Limpiando usuario...");
         whatsapp.clearUser();

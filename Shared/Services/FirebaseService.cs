@@ -36,6 +36,7 @@ public class FirebaseService
     private string CommandsPath => FirebaseSettings.CommandsFor(_userId);
     private string StatusPath => FirebaseSettings.StatusFor(_userId);
     private string ControlPath => $"{UserPath}/control";
+    private string ConfigurationPath => $"{UserPath}/configuracion";
 
     public async Task<bool> HasPendingMessagesAsync()
     {
@@ -61,6 +62,15 @@ public class FirebaseService
     public Task SetHasPendingRepliesAsync(bool value)
     {
         return SetControlFlagAsync("has_pending_replies", value);
+    }
+
+    public async Task<bool> IsAirbnbEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"{ConfigurationPath}/airbnb/enabled.json", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        return !string.IsNullOrWhiteSpace(json) && json != "null" && JsonSerializer.Deserialize<bool>(json, _jsonOptions);
     }
 
     private async Task SetControlFlagAsync(string flag, bool value)
@@ -142,7 +152,7 @@ public class FirebaseService
 
     public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text)
     {
-        if (string.IsNullOrWhiteSpace(phone))
+        if (string.IsNullOrWhiteSpace(phone) && !string.Equals(currentSource, "Airbnb", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("No se puede guardar una respuesta sin destinatario.", nameof(phone));
 
         var reply = new ReplyMessageDto
@@ -247,7 +257,8 @@ public class FirebaseService
 
             if (dictionary == null) return [];
 
-            var replies = dictionary.Where(item => item.Value != null && !string.IsNullOrWhiteSpace(item.Value.Phone))
+            var replies = dictionary.Where(item => item.Value != null &&
+                (!string.IsNullOrWhiteSpace(item.Value.Phone) || string.Equals(item.Value.Source, "Airbnb", StringComparison.OrdinalIgnoreCase)))
            .Select(item =>
            {
                item.Value.Id = item.Key;

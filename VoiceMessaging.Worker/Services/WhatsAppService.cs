@@ -16,7 +16,7 @@ public class WhatsAppService
     {
         var request = new { phone, text };
 
-        var response = await _httpClient.PostAsJsonAsync("/send", request);
+        var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request);
 
         var body = await response.Content.ReadAsStringAsync();
 
@@ -28,7 +28,7 @@ public class WhatsAppService
     {
         try
         {
-            var messages = await _httpClient.GetFromJsonAsync<List<WhatsAppIncomingMessageDto>>("/messages");
+            var messages = await _httpClient.GetFromJsonAsync<List<WhatsAppIncomingMessageDto>>("/whatsapp/messages");
 
             return messages ?? [];
         }
@@ -43,7 +43,7 @@ public class WhatsAppService
 
     public async Task<List<WhatsAppIncomingMessageDto>?> GetUnreadMessagesAsync()
     {
-        var response = await _httpClient.GetAsync("/unread-messages");
+        var response = await _httpClient.GetAsync("/whatsapp/unread-messages");
 
         if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
             return null;
@@ -56,7 +56,7 @@ public class WhatsAppService
 
     public async Task MarkChatAsReadAsync(string chatId)
     {
-        var response = await _httpClient.PostAsJsonAsync("/mark-read", new { chatId });
+        var response = await _httpClient.PostAsJsonAsync("/whatsapp/mark-read", new { chatId });
 
         response.EnsureSuccessStatusCode();
     }
@@ -81,7 +81,7 @@ public class WhatsAppService
             text = reply.Text
         };
 
-        var response = await _httpClient.PostAsJsonAsync("/send", request);
+        var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request);
 
         // var body = await response.Content.ReadAsStringAsync();
 

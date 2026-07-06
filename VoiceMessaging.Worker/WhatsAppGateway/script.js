@@ -16,10 +16,10 @@ async function loadQr() {
     const image = document.getElementById("qrImage");
 
     try {
-        const response = await fetch("/qr-data", { cache: "no-store" });
+        const response = await fetch("/whatsapp/qr-data", { cache: "no-store" });
 
         if (!response.ok) {
-            const statusResponse = await fetch("/status", { cache: "no-store" });
+            const statusResponse = await fetch("/whatsapp/status", { cache: "no-store" });
             const status = await statusResponse.json();
 
             image.hidden = true;
@@ -46,7 +46,7 @@ async function loadUserData() {
     const form = document.getElementById("userForm");
 
     try {
-        const response = await fetch("/status", { cache: "no-store" });
+        const response = await fetch("/whatsapp/status", { cache: "no-store" });
 
         if (!response.ok)
             throw new Error("No fue posible consultar el estado del gateway.");
@@ -99,7 +99,7 @@ async function saveUser(event) {
     message.textContent = "Guardando información...";
 
     try {
-        const response = await fetch("/setup-user", {
+        const response = await fetch("/whatsapp/setup-user", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -132,7 +132,7 @@ async function clearUser() {
     message.textContent = "Eliminando información...";
 
     try {
-        const response = await fetch("/setup-user", { method: "DELETE" });
+        const response = await fetch("/whatsapp/setup-user", { method: "DELETE" });
 
         if (!response.ok) {
             const result = await response.json();
