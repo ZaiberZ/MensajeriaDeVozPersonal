@@ -31,6 +31,8 @@ const hasSession = fs.existsSync(sessionPath);
 let initialized = false;
 let connected = false;
 let logoutInProgress = false;
+const initializationRetryDelayMs = 15 * 1000;
+const initializationMaxAttempts = 5;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
@@ -247,7 +249,19 @@ async function getUnreadMessages() {
     if (!connected)
         throw new Error("WhatsApp no está conectado.");
 
-    const chats = await client.getChats();
+    let chats;
+
+    try {
+        chats = await client.getChats();
+    } catch (error) {
+        console.warn("WhatsApp no está disponible temporalmente para consultar los chats:");
+        console.warn(error);
+
+        const unavailableError = new Error("WhatsApp no está disponible temporalmente.");
+        unavailableError.statusCode = 503;
+        throw unavailableError;
+    }
+
     const unreadMessages = [];
 
     for (const chat of chats) {
@@ -257,12 +271,12 @@ async function getUnreadMessages() {
             continue;
 
         try {
-            const unreadMessages = await chat.fetchMessages({
+            const chatMessages = await chat.fetchMessages({
                 limit: chat.unreadCount,
                 fromMe: false
             });
 
-            for (const message of unreadMessages) {
+            for (const message of chatMessages) {
                 if (!isSupportedIncomingMessage(message))
                     continue;
 
@@ -403,15 +417,34 @@ async function initialize() {
 
     console.log("Inicializando WhatsApp...");
 
-    try {
-        await client.initialize();
-    } catch (error) {
-        initialized = false;
-        connected = false;
+    for (let attempt = 1; attempt <= initializationMaxAttempts; attempt++) {
+        try {
+            console.log(`Intento de inicialización de WhatsApp ${attempt} de ${initializationMaxAttempts}.`);
+            await client.initialize();
+            return;
+        } catch (error) {
+            connected = false;
 
-        console.error("Error inicializando WhatsApp:");
-        console.error(error);
+            console.error(`Error inicializando WhatsApp en el intento ${attempt} de ${initializationMaxAttempts}:`);
+            console.error(error);
+
+            try {
+                await client.destroy();
+            } catch (cleanupError) {
+                console.error("No fue posible cerrar Chromium después del error de inicialización:");
+                console.error(cleanupError);
+            }
+
+            if (attempt < initializationMaxAttempts) {
+                console.log(`Se volverá a intentar en ${initializationRetryDelayMs / 1000} segundos.`);
+                await new Promise(resolve => setTimeout(resolve, initializationRetryDelayMs));
+            }
+        }
     }
+
+    initialized = false;
+    console.error(`No fue posible inicializar WhatsApp después de ${initializationMaxAttempts} intentos. Se reiniciará WhatsAppGateway.`);
+    setTimeout(() => process.exit(1), 1000);
 }
 
 function isConnected() {

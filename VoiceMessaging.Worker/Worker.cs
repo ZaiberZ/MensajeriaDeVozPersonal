@@ -10,6 +10,7 @@ public class Worker : BackgroundService
 {
     private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
     private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan InternetConnectionRetryInterval = TimeSpan.FromSeconds(15);
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
@@ -65,7 +66,7 @@ public class Worker : BackgroundService
             return;
 
         var firebase = new FirebaseService(_user);
-        await firebase.EnsureUserRegisteredAsync();
+        await WaitForInternetConnectionAsync(firebase, stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
         var initialReadReconciliationCompleted = await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
@@ -93,12 +94,77 @@ public class Worker : BackgroundService
                 nextReadReconciliationAt = DateTime.UtcNow.Add(readReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
             }
 
+            bool hasPendingReplies;
+
+            try
+            {
+                hasPendingReplies = await firebase.HasPendingRepliesAsync();
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is null)
+            {
+                await WaitForInternetConnectionAsync(firebase, stoppingToken, ex);
+                continue;
+            }
+            catch (TaskCanceledException ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                await WaitForInternetConnectionAsync(firebase, stoppingToken, ex);
+                continue;
+            }
+
             msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
-            msgError += await SendPendingReplies(whatsApp, firebase, stoppingToken);
+            msgError += await SendPendingReplies(whatsApp, firebase, hasPendingReplies, stoppingToken);
             await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
 
+    }
+
+    private async Task WaitForInternetConnectionAsync(FirebaseService firebase, CancellationToken stoppingToken, Exception? connectionException = null)
+    {
+        var waitingForConnection = connectionException != null;
+
+        if (connectionException != null)
+        {
+            _logger.LogWarning(connectionException, "Sin conexión con Firebase. El Worker esperará a que Internet vuelva a estar disponible.");
+            await RegisterWorkerLogAsync("warning", "Sin conexión con Firebase. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
+        }
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await firebase.EnsureUserRegisteredAsync(stoppingToken);
+
+                if (waitingForConnection)
+                    _logger.LogInformation("Conexión con Firebase restablecida. El Worker continuará procesando mensajes.");
+
+                return;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is null)
+            {
+                if (!waitingForConnection)
+                {
+                    waitingForConnection = true;
+                    _logger.LogWarning(ex, "Sin conexión con Firebase durante el arranque. El Worker seguirá intentando.");
+                    await RegisterWorkerLogAsync("warning", "Sin conexión con Firebase durante el arranque. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
+                }
+            }
+            catch (TaskCanceledException ex)
+            {
+                if (!waitingForConnection)
+                {
+                    waitingForConnection = true;
+                    _logger.LogWarning(ex, "La conexión con Firebase agotó el tiempo de espera durante el arranque. El Worker seguirá intentando.");
+                    await RegisterWorkerLogAsync("warning", "La conexión con Firebase agotó el tiempo de espera. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
+                }
+            }
+
+            await Task.Delay(InternetConnectionRetryInterval, stoppingToken);
+        }
     }
 
     private async Task ReportWorkerWaitingForUserAsync(WhatsAppService whatsApp, CancellationToken stoppingToken)
@@ -309,12 +375,12 @@ public class Worker : BackgroundService
               Math.Abs((firebaseMessage.Date - whatsAppMessage.Date).TotalSeconds) <= 2)));
     }
 
-    private async Task<string> SendPendingReplies(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
+    private async Task<string> SendPendingReplies(WhatsAppService whatsApp, FirebaseService firebase, bool hasPendingReplies, CancellationToken stoppingToken)
     {
         string msgError = "";
         try
         {
-            if (!await firebase.HasPendingRepliesAsync())
+            if (!hasPendingReplies)
                 return msgError;
 
             var replies = await firebase.GetPendingRepliesAsync();

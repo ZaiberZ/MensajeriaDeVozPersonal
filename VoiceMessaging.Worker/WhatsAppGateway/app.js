@@ -119,7 +119,7 @@ app.get("/unread-messages", async (req, res) => {
         const messages = await whatsapp.getUnreadMessages();
         res.json(messages);
     } catch (error) {
-        if (error.message === "WhatsApp no está conectado.")
+        if (error.statusCode === 503 || error.message === "WhatsApp no está conectado.")
             return res.status(503).json({ success: false, error: error.message });
 
         console.error("Error al consultar mensajes no leídos:");

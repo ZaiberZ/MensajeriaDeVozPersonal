@@ -72,19 +72,19 @@ public class FirebaseService
         response.EnsureSuccessStatusCode();
     }
 
-    public async Task EnsureUserRegisteredAsync()
+    public async Task EnsureUserRegisteredAsync(CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.GetAsync($"{UserPath}.json");
+        var response = await _httpClient.GetAsync($"{UserPath}.json", cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(json) && json != "null")
             return;
 
         var userJson = JsonSerializer.Serialize(_user);
         var content = new StringContent(userJson, Encoding.UTF8, "application/json");
-        var createResponse = await _httpClient.PutAsync($"{UserPath}.json", content);
+        var createResponse = await _httpClient.PutAsync($"{UserPath}.json", content, cancellationToken);
 
         createResponse.EnsureSuccessStatusCode();
     }
