@@ -4,6 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>..\Installer\AlexaWhatsApp.ico</ApplicationIcon>
     <UserSecretsId>dotnet-VoiceMessaging.Worker-769c99d3-90bd-4b6e-8a31-0bdc5a75ee9b</UserSecretsId>
   </PropertyGroup>
 
@@ -41,6 +42,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\AlexaWhatsApp.png" Link="WhatsAppGateway\AlexaWhatsApp.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </None>
     <None Update="WhatsAppGateway\app.js">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

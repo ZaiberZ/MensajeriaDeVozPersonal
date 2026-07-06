@@ -19,10 +19,11 @@ PrivilegesRequired=admin
 
 [Files]
 Source: "{#InstallerSource}"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "AlexaWhatsApp.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{commondesktop}\Voice Messaging QR"; Filename: "http://localhost:3000/status"
-Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/app-status"
+Name: "{commondesktop}\Voice Messaging QR"; Filename: "http://localhost:3000/status"; IconFilename: "{app}\AlexaWhatsApp.ico"
+Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/app-status"; IconFilename: "{app}\AlexaWhatsApp.ico"
 
 [Run]
 Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated

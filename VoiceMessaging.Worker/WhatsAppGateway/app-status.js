@@ -4,6 +4,11 @@ const setStatus = (id, kind, text) => {
     element.querySelector("span:last-child").textContent = text;
 };
 
+const setWhatsAppActions = connected => {
+    document.getElementById("qrLink").hidden = connected;
+    document.getElementById("logoutButton").hidden = !connected;
+};
+
 const renderErrorLogs = logs => {
     const section = document.getElementById("errorLogsSection");
     const list = document.getElementById("errorLogs");
@@ -52,6 +57,7 @@ async function refreshStatus() {
         setStatus("gateway", status.gatewayRunning ? "ok" : "bad", status.gatewayRunning ? "Ejecutándose" : "Sin respuesta");
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
+        setWhatsAppActions(status.whatsappConnected);
         setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
 
         if (!status.workerRunning)
@@ -70,6 +76,7 @@ async function refreshStatus() {
         await refreshErrorLogs();
     } catch (error) {
         setStatus("gateway", "bad", "Sin respuesta");
+        setWhatsAppActions(false);
         document.getElementById("detail").textContent = "No fue posible actualizar el estado: " + error.message;
     }
 }

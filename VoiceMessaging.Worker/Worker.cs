@@ -11,6 +11,7 @@ public class Worker : BackgroundService
     private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
     private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan InternetConnectionRetryInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan InternetConnectionWarningDelay = TimeSpan.FromMinutes(1);
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
@@ -37,8 +38,7 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested &&
-               !await EnsureWhatsAppGatewayIsRunningAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested && !await EnsureWhatsAppGatewayIsRunningAsync(stoppingToken, logUnavailableWarning: false))
         {
             await Task.Delay(5000, stoppingToken);
         }
@@ -122,12 +122,9 @@ public class Worker : BackgroundService
     private async Task WaitForInternetConnectionAsync(FirebaseService firebase, CancellationToken stoppingToken, Exception? connectionException = null)
     {
         var waitingForConnection = connectionException != null;
-
-        if (connectionException != null)
-        {
-            _logger.LogWarning(connectionException, "Sin conexión con Firebase. El Worker esperará a que Internet vuelva a estar disponible.");
-            await RegisterWorkerLogAsync("warning", "Sin conexión con Firebase. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
-        }
+        var warningLogged = false;
+        var connectionWaitTime = Stopwatch.StartNew();
+        var lastConnectionException = connectionException;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -135,7 +132,7 @@ public class Worker : BackgroundService
             {
                 await firebase.EnsureUserRegisteredAsync(stoppingToken);
 
-                if (waitingForConnection)
+                if (warningLogged)
                     _logger.LogInformation("Conexión con Firebase restablecida. El Worker continuará procesando mensajes.");
 
                 return;
@@ -146,21 +143,20 @@ public class Worker : BackgroundService
             }
             catch (HttpRequestException ex) when (ex.StatusCode is null)
             {
-                if (!waitingForConnection)
-                {
-                    waitingForConnection = true;
-                    _logger.LogWarning(ex, "Sin conexión con Firebase durante el arranque. El Worker seguirá intentando.");
-                    await RegisterWorkerLogAsync("warning", "Sin conexión con Firebase durante el arranque. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
-                }
+                waitingForConnection = true;
+                lastConnectionException = ex;
             }
             catch (TaskCanceledException ex)
             {
-                if (!waitingForConnection)
-                {
-                    waitingForConnection = true;
-                    _logger.LogWarning(ex, "La conexión con Firebase agotó el tiempo de espera durante el arranque. El Worker seguirá intentando.");
-                    await RegisterWorkerLogAsync("warning", "La conexión con Firebase agotó el tiempo de espera. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
-                }
+                waitingForConnection = true;
+                lastConnectionException = ex;
+            }
+
+            if (waitingForConnection && !warningLogged && connectionWaitTime.Elapsed >= InternetConnectionWarningDelay)
+            {
+                warningLogged = true;
+                _logger.LogWarning(lastConnectionException, "Sin conexión con Firebase. El Worker esperará a que Internet vuelva a estar disponible.");
+                await RegisterWorkerLogAsync("warning", "Sin conexión con Firebase. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
             }
 
             await Task.Delay(InternetConnectionRetryInterval, stoppingToken);
@@ -458,7 +454,7 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task<bool> EnsureWhatsAppGatewayIsRunningAsync(CancellationToken stoppingToken)
+    private async Task<bool> EnsureWhatsAppGatewayIsRunningAsync(CancellationToken stoppingToken, bool logUnavailableWarning = true)
     {
         if (await IsGatewayRunningAsync(stoppingToken))
         {
@@ -466,7 +462,8 @@ public class Worker : BackgroundService
             return true;
         }
 
-        _logger.LogWarning("WhatsAppGateway no responde. Intentando iniciarlo...");
+        if (logUnavailableWarning)
+            _logger.LogWarning("WhatsAppGateway no responde. Intentando iniciarlo...");
 
         if (!StartWhatsAppGateway())
             return false;
