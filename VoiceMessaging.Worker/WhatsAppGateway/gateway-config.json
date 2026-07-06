@@ -4,6 +4,6 @@
     "Enabled": true,
     "Headless": false,
     "LoginUrl": "https://www.airbnb.com/login",
-    "MessagesUrl": "https://www.airbnb.com/hosting/inbox"
+    "MessagesUrl": "https://www.airbnb.com/hosting/messages/"
   }
 }

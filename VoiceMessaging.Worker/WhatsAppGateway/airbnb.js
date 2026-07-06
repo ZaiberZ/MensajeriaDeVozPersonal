@@ -7,6 +7,12 @@ const config = require("./gateway-config.json");
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const sessionPath = path.join(dataRoot, "VoiceMessaging", "airbnb-auth");
 const airbnbConfig = config.Airbnb ?? {};
+const airbnbMessageSelectors = {
+    inbox: '[data-testid="inbox-container-marker"] #list_inbox',
+    threadLinks: '[data-testid="inbox-container-marker"] #list_inbox a[data-testid^="inbox_list_"]',
+    messageList: '[data-testid="message-list"]',
+    messageNodes: '[data-testid="message-list"] [role="group"][data-item-id] .t12j2ntd'
+};
 
 let browser = null;
 let page = null;
@@ -44,14 +50,19 @@ async function isAirbnbEnabled() {
             throw new Error(`Firebase respondió HTTP ${response.status}.`);
 
         const value = await response.json();
-        return value === null ? airbnbConfig.Enabled === true : value === true;
+        if (value === null && airbnbConfig.Enabled === true) {
+            await writeAirbnbEnabled(true);
+            return true;
+        }
+
+        return value === true;
     } catch (error) {
         console.warn(`No se pudo leer la configuración de Airbnb en Firebase: ${error.message}`);
         return airbnbConfig.Enabled === true;
     }
 }
 
-async function setAirbnbEnabled(enabled) {
+async function writeAirbnbEnabled(enabled) {
     const enabledUrl = getEnabledUrl();
 
     if (!enabledUrl)
@@ -66,6 +77,10 @@ async function setAirbnbEnabled(enabled) {
 
     if (!response.ok)
         throw new Error(`Firebase respondió HTTP ${response.status}.`);
+}
+
+async function setAirbnbEnabled(enabled) {
+    await writeAirbnbEnabled(enabled);
 
     if (enabled === true)
         await startAirbnb();
@@ -112,7 +127,8 @@ async function ensureBrowser(visible = false) {
 }
 
 function updateAuthenticationFromUrl(url) {
-    authenticated = /^https:\/\/(?:www\.)?airbnb\.[^/]+\/hosting\/inbox(?:\/|$|\?)/i.test(url);
+    authenticated = /^https:\/\/(?:www\.)?airbnb\.[^/]+\/hosting\/messages(?:\/|$|\?)/i.test(url);
+    console.log("Url de Airbnb:", url, "Autenticado:", authenticated);
     return authenticated;
 }
 
@@ -180,19 +196,108 @@ async function openAirbnbLogin() {
 }
 
 async function getAirbnbMessages() {
-    if (!await isAirbnbEnabled())
+    console.log("Airbnb mensajes: iniciando lectura.");
+
+    if (!await isAirbnbEnabled()) {
+        console.log("Airbnb mensajes: integración deshabilitada; no se consultan mensajes.");
         return [];
+    }
 
     try {
         await navigateToMessages(false);
+        console.log("Airbnb mensajes: URL después de navegar:", page.url());
 
-        if (!authenticated)
+        if (!authenticated) {
+            console.log("Airbnb mensajes: no hay sesión válida en /hosting/messages/; no se consultan mensajes.");
             return [];
+        }
 
-        // TODO MVP: agregar selectores verificados contra la versión de Airbnb usada
-        // por el anfitrión. No se extrae texto con selectores genéricos para evitar
-        // registrar como mensajes botones, estados o fragmentos de otras reservas.
-        return [];
+        // Este extractor no distingue leídos contra no leídos: lee los mensajes visibles
+        // de los hilos que Airbnb carga en la lista y el Worker evita duplicados en Firebase.
+        console.log("Airbnb mensajes: esperando lista de conversaciones:", airbnbMessageSelectors.inbox);
+        await page.waitForSelector(airbnbMessageSelectors.inbox, { timeout: 15000 });
+
+        const threadIds = await page.$$eval(
+            airbnbMessageSelectors.threadLinks,
+            links => links.map(link => link.dataset.testid)
+        );
+        console.log(`Airbnb mensajes: hilos detectados=${threadIds.length}.`);
+
+        if (threadIds.length === 0) {
+            const selectorSnapshot = await page.evaluate(selectors => ({
+                inboxExists: document.querySelector(selectors.inbox) !== null,
+                threadLinkCount: document.querySelectorAll(selectors.threadLinks).length,
+                bodyTextStart: document.body?.innerText?.slice(0, 500) ?? ""
+            }), airbnbMessageSelectors);
+            console.log("Airbnb mensajes: no se detectaron hilos. Snapshot:", JSON.stringify(selectorSnapshot));
+        }
+
+        const messages = [];
+
+        for (const threadTestId of threadIds) {
+            const threadSelector = `[data-testid="${threadTestId}"]`;
+            console.log(`Airbnb mensajes: abriendo hilo ${threadTestId}.`);
+            await page.click(threadSelector);
+            await page.waitForFunction(
+                selector => document.querySelector(selector)?.closest('[data-listrow="true"]')?.getAttribute("aria-current") === "true",
+                { timeout: 15000 },
+                threadSelector
+            );
+            await page.waitForSelector(airbnbMessageSelectors.messageList, { timeout: 15000 });
+
+            const chatId = threadTestId.substring("inbox_list_".length);
+            const threadResult = await page.$$eval(
+                airbnbMessageSelectors.messageNodes,
+                (messageNodes, selectedChatId) => messageNodes.map(messageNode => {
+                    const messageGroup = messageNode.closest('[role="group"][data-item-id]');
+                    const label = messageGroup?.getAttribute("aria-label") ?? "";
+                    const sentAtMatch = label.match(/\. Sent (.+)$/);
+                    const sentAt = Date.parse(sentAtMatch?.[1] ?? "");
+                    const sender = messageGroup?.querySelector('span[aria-label^="Sent by "]')?.textContent?.trim() ?? "";
+                    const text = messageNode.innerText.trim();
+
+                    if (!sender || /^(?:You|Tú)$/i.test(sender) || !text || !Number.isFinite(sentAt))
+                        return {
+                            skipped: true,
+                            reason: !sender ? "sin remitente" : /^(?:You|Tú|TÃº)$/i.test(sender) ? "mensaje propio" : !text ? "sin texto" : "fecha inválida",
+                            label: label.slice(0, 200),
+                            sender,
+                            textStart: text.slice(0, 120)
+                        };
+
+                    return {
+                        skipped: false,
+                        chatId: selectedChatId,
+                        sender,
+                        text,
+                        date: new Date(sentAt).toISOString()
+                    };
+                }),
+                chatId
+            );
+            const threadMessages = threadResult.filter(message => !message.skipped).map(({ skipped, ...message }) => message);
+            const skippedMessages = threadResult.filter(message => message.skipped);
+
+            console.log(`Airbnb mensajes: hilo ${chatId}: nodos=${threadResult.length}, guardables=${threadMessages.length}, descartados=${skippedMessages.length}.`);
+
+            if (threadResult.length === 0) {
+                const threadSnapshot = await page.evaluate(selectors => ({
+                    messageListExists: document.querySelector(selectors.messageList) !== null,
+                    groupCount: document.querySelectorAll(`${selectors.messageList} [role="group"][data-item-id]`).length,
+                    messageNodeCount: document.querySelectorAll(selectors.messageNodes).length,
+                    panelTextStart: document.querySelector(selectors.messageList)?.innerText?.slice(0, 500) ?? ""
+                }), airbnbMessageSelectors);
+                console.log(`Airbnb mensajes: hilo ${chatId}: no hubo nodos de mensaje. Snapshot:`, JSON.stringify(threadSnapshot));
+            } else if (skippedMessages.length > 0) {
+                console.log(`Airbnb mensajes: hilo ${chatId}: descartes muestra:`, JSON.stringify(skippedMessages.slice(0, 3)));
+            }
+
+            messages.push(...threadMessages);
+        }
+
+        console.log(`Se leyeron ${messages.length} mensajes de Airbnb.`);
+
+        return messages;
     } catch (error) {
         console.error("No se pudieron leer los mensajes de Airbnb:");
         console.error(error);

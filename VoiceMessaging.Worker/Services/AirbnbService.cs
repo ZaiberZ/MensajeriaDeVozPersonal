@@ -20,6 +20,15 @@ public class AirbnbService
         return await response.Content.ReadFromJsonAsync<List<AirbnbIncomingMessageDto>>(cancellationToken: cancellationToken) ?? [];
     }
 
+    public async Task<bool> IsAuthenticatedAsync(CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.GetAsync("/airbnb/status", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var status = await response.Content.ReadFromJsonAsync<AirbnbStatusDto>(cancellationToken: cancellationToken);
+
+        return status?.Authenticated == true;
+    }
+
     public async Task SendReplyAsync(ReplyMessageDto reply, CancellationToken cancellationToken)
     {
         var response = await _httpClient.PostAsJsonAsync(
@@ -36,5 +45,10 @@ public class AirbnbService
     {
         public bool Success { get; set; }
         public string Message { get; set; } = "";
+    }
+
+    private sealed class AirbnbStatusDto
+    {
+        public bool Authenticated { get; set; }
     }
 }
