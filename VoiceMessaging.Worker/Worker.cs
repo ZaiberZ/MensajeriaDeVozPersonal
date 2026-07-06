@@ -70,14 +70,15 @@ public class Worker : BackgroundService
             return;
 
         var firebase = new FirebaseService(_user);
+        var whatsAppProcessor = new WhatsAppMessageProcessor(whatsApp, firebase, _logger, RegisterWorkerLogAsync);
+        var airbnbProcessor = new AirbnbMessageProcessor(airbnb, firebase, _logger, RegisterWorkerLogAsync, airbnbGatewayEnabled);
+        var pendingReplyProcessor = new PendingReplyProcessor(whatsAppProcessor, airbnbProcessor, firebase, _logger, RegisterWorkerLogAsync);
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
-        var initialReadReconciliationCompleted = await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
+        var initialReadReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
         var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
         var nextAirbnbCheckAt = DateTime.UtcNow;
-        string msgError = "";
-
         while (!stoppingToken.IsCancellationRequested)
         {
             if (!await IsGatewayRunningAsync(stoppingToken))
@@ -95,7 +96,7 @@ public class Worker : BackgroundService
 
             if (DateTime.UtcNow >= nextReadReconciliationAt)
             {
-                var readReconciliationCompleted = await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
+                var readReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
                 nextReadReconciliationAt = DateTime.UtcNow.Add(readReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
             }
 
@@ -105,8 +106,8 @@ public class Worker : BackgroundService
 
                 try
                 {
-                    if (await firebase.IsAirbnbEnabledAsync(stoppingToken))
-                        msgError += await SaveNewAirbnbMessages(airbnb, firebase, stoppingToken);
+                    if (await airbnbProcessor.IsEnabledAsync(stoppingToken))
+                        await airbnbProcessor.SaveNewMessagesAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -136,8 +137,8 @@ public class Worker : BackgroundService
                 continue;
             }
 
-            msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
-            msgError += await SendPendingReplies(whatsApp, airbnb, firebase, hasPendingReplies, airbnbGatewayEnabled, stoppingToken);
+            await whatsAppProcessor.SaveNewMessagesAsync(stoppingToken);
+            await pendingReplyProcessor.ProcessAsync(hasPendingReplies, stoppingToken);
             await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
@@ -221,84 +222,6 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task<bool> ReconcileUnreadMessagesAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
-    {
-        try
-        {
-            var whatsAppUnreadMessages = await whatsApp.GetUnreadMessagesAsync();
-
-            if (whatsAppUnreadMessages == null)
-            {
-                _logger.LogDebug("Reconciliación de lectura omitida porque WhatsApp todavía no está conectado.");
-                return false;
-            }
-
-            if (whatsAppUnreadMessages.Count == 0)
-            {
-                _logger.LogInformation("Reconciliación de lectura completada. WhatsApp no tiene mensajes pendientes.");
-                return true;
-            }
-
-            var firebaseMessages = await firebase.GetAllMessagesAsync();
-            var addedMessages = 0;
-            var readChats = 0;
-            var hasUnreadMessagesInFirebase = firebaseMessages.Any(message => !message.IsRead);
-
-            foreach (var chat in whatsAppUnreadMessages.GroupBy(message => message.ChatId))
-            {
-                var allChatMessagesAreReadInFirebase = true;
-
-                foreach (var whatsAppMessage in chat)
-                {
-                    var firebaseMessage = FindMatchingMessage(firebaseMessages, whatsAppMessage);
-
-                    if (firebaseMessage == null)
-                    {
-                        firebaseMessage = CreateFirebaseMessage(whatsAppMessage);
-                        await firebase.SaveIncomingMessageAsync(firebaseMessage);
-                        firebaseMessages.Add(firebaseMessage);
-                        addedMessages++;
-                        hasUnreadMessagesInFirebase = true;
-                        allChatMessagesAreReadInFirebase = false;
-                        continue;
-                    }
-
-                    if (!firebaseMessage.IsRead)
-                    {
-                        hasUnreadMessagesInFirebase = true;
-                        allChatMessagesAreReadInFirebase = false;
-                    }
-                }
-
-                // sendSeen marca el chat completo. No debe ocultar mensajes que sigan
-                // pendientes de lectura en Firebase.
-                if (allChatMessagesAreReadInFirebase)
-                {
-                    await whatsApp.MarkChatAsReadAsync(chat.Key);
-                    readChats++;
-                }
-            }
-
-            if (hasUnreadMessagesInFirebase)
-                await firebase.SetHasPendingMessagesAsync(true);
-
-            _logger.LogInformation(
-                "Reconciliación de lectura completada. Mensajes recuperados: {added}; chats marcados como leídos: {readChats}.",
-                addedMessages,
-                readChats);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error reconciliando mensajes leídos entre Firebase y WhatsApp.");
-            await RegisterWorkerLogAsync(
-                "error",
-                $"Error reconciliando mensajes leídos entre Firebase y WhatsApp: {ex}",
-                stoppingToken);
-            return false;
-        }
-    }
-
     private async Task DeleteOldReadMessagesAsync(FirebaseService firebase, CancellationToken stoppingToken)
     {
         try
@@ -315,209 +238,6 @@ public class Worker : BackgroundService
             _logger.LogError(ex, "Error limpiando mensajes leídos antiguos.");
             await RegisterWorkerLogAsync("error",$"Error limpiando mensajes leídos antiguos: {ex}",stoppingToken);
         }
-    }
-
-    private async Task<string> SaveNewMessages(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
-    {
-        string msgError = "";
-        try
-        {
-            var messages = await whatsApp.GetMessagesAsync();
-
-            if (messages.Count == 0)
-                return msgError;
-
-            var firebaseMessages = await firebase.GetAllMessagesAsync();
-            var addedMessages = 0;
-
-            foreach (var message in messages)
-            {
-                try
-                {
-                    if (FindMatchingMessage(firebaseMessages, message) != null)
-                    {
-                        _logger.LogDebug("El mensaje {messageId} ya existe en Firebase.", message.Id);
-                        continue;
-                    }
-
-                    var firebaseMessage = CreateFirebaseMessage(message);
-
-                    await firebase.SaveIncomingMessageAsync(firebaseMessage);
-                    firebaseMessages.Add(firebaseMessage);
-                    addedMessages++;
-
-                    _logger.LogInformation("Mensaje guardado en Firebase: {sender} - {text}", firebaseMessage.Sender, firebaseMessage.Text);
-                }
-                catch (Exception e)
-                {
-                    msgError += e.Message + " | ";
-                }
-            }
-            if (!string.IsNullOrEmpty(msgError))
-                throw new Exception(msgError);
-
-            if (addedMessages > 0)
-                await firebase.SetHasPendingMessagesAsync(true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error guardando mensajes nuevos.");
-            await RegisterWorkerLogAsync("error", $"Error guardando mensajes nuevos: {ex}", stoppingToken);
-        }
-
-        return msgError;
-    }
-
-    private static MessageDto CreateFirebaseMessage(WhatsAppIncomingMessageDto message)
-    {
-        return new MessageDto
-        {
-            ExternalMessageId = message.Id,
-            ChatId = message.ChatId,
-            Phone = message.Phone,
-            Source = message.Source,
-            Account = message.Account,
-            Sender = message.Sender,
-            Text = message.Text,
-            Date = message.Date,
-            IsRead = false
-        };
-    }
-
-    private static MessageDto? FindMatchingMessage(
-        IEnumerable<MessageDto> firebaseMessages,
-        WhatsAppIncomingMessageDto whatsAppMessage)
-    {
-        return firebaseMessages.FirstOrDefault(firebaseMessage =>
-            firebaseMessage.ChatId == whatsAppMessage.ChatId &&
-            ((!string.IsNullOrWhiteSpace(whatsAppMessage.Id) &&
-              firebaseMessage.ExternalMessageId == whatsAppMessage.Id) ||
-             (firebaseMessage.Text == whatsAppMessage.Text &&
-              Math.Abs((firebaseMessage.Date - whatsAppMessage.Date).TotalSeconds) <= 2)));
-    }
-
-    private async Task<string> SaveNewAirbnbMessages(AirbnbService airbnb, FirebaseService firebase, CancellationToken stoppingToken)
-    {
-        var errors = "";
-
-        try
-        {
-            var messages = await airbnb.GetMessagesAsync(stoppingToken);
-
-            if (messages.Count == 0)
-                return errors;
-
-            var firebaseMessages = await firebase.GetAllMessagesAsync();
-            var addedMessages = 0;
-
-            foreach (var message in messages)
-            {
-                try
-                {
-                    var alreadyExists = firebaseMessages.Any(savedMessage =>
-                        savedMessage.ChatId == message.ChatId &&
-                        savedMessage.Text == message.Text &&
-                        Math.Abs((savedMessage.Date - message.Date).TotalSeconds) <= 2);
-
-                    if (alreadyExists)
-                        continue;
-
-                    var firebaseMessage = new MessageDto
-                    {
-                        ChatId = message.ChatId,
-                        Phone = "",
-                        Source = "Airbnb",
-                        Account = "Airbnb",
-                        Sender = message.Sender,
-                        Text = message.Text,
-                        Date = message.Date,
-                        IsRead = false
-                    };
-
-                    await firebase.SaveIncomingMessageAsync(firebaseMessage);
-                    firebaseMessages.Add(firebaseMessage);
-                    addedMessages++;
-                    _logger.LogInformation("Mensaje de Airbnb guardado en Firebase: {sender} - {text}", firebaseMessage.Sender, firebaseMessage.Text);
-                }
-                catch (Exception ex)
-                {
-                    errors += ex.Message + " | ";
-                }
-            }
-
-            if (addedMessages > 0)
-                await firebase.SetHasPendingMessagesAsync(true);
-        }
-        catch (Exception ex)
-        {
-            errors += ex.Message + " | ";
-            _logger.LogError(ex, "Error guardando mensajes nuevos de Airbnb.");
-            await RegisterWorkerLogAsync("error", $"Error guardando mensajes nuevos de Airbnb: {ex}", stoppingToken);
-        }
-
-        return errors;
-    }
-
-    private async Task<string> SendPendingReplies(WhatsAppService whatsApp, AirbnbService airbnb, FirebaseService firebase, bool hasPendingReplies, bool airbnbGatewayEnabled, CancellationToken stoppingToken)
-    {
-        string msgError = "";
-        try
-        {
-            if (!hasPendingReplies)
-                return msgError;
-
-            var replies = await firebase.GetPendingRepliesAsync();
-            var allRepliesProcessed = true;
-
-            foreach (var reply in replies)
-            {
-                try
-                {
-
-                    if (string.Equals(reply.Source, "Airbnb", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!airbnbGatewayEnabled || !await firebase.IsAirbnbEnabledAsync(stoppingToken))
-                            throw new InvalidOperationException("Airbnb está deshabilitado; la respuesta permanecerá pendiente.");
-
-                        await airbnb.SendReplyAsync(reply, stoppingToken);
-                    }
-                    else if (string.IsNullOrWhiteSpace(reply.Phone))
-                    {
-                        _logger.LogWarning("No se pudo enviar respuesta {id}. No tiene teléfono.", reply.Sender);
-                        await RegisterWorkerLogAsync("warning", $"No se pudo enviar la respuesta de {reply.Sender}. No tiene teléfono.", stoppingToken);
-
-                        allRepliesProcessed = false;
-                        continue;
-                    }
-                    else
-                    {
-                        await whatsApp.SendReplyAsync(reply);
-                    }
-
-                    await firebase.DeleteReplyAsync(reply.Id);
-
-                    _logger.LogInformation("Respuesta enviada y eliminada de Firebase: {sender} - {text}", reply.Sender, reply.Text);
-
-                }
-                catch (Exception e)
-                {
-                    allRepliesProcessed = false;
-                    msgError += e.Message + " | ";
-                }
-            }
-            if (!string.IsNullOrEmpty(msgError))
-                throw new Exception(msgError);
-
-            if (allRepliesProcessed)
-                await firebase.SetHasPendingRepliesAsync(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error enviando respuestas pendientes.");
-            await RegisterWorkerLogAsync("error", $"Error enviando respuestas pendientes: {ex}", stoppingToken);
-        }
-
-        return msgError;
     }
 
     private async Task RegisterWorkerLogAsync(string level, string message, CancellationToken stoppingToken)
