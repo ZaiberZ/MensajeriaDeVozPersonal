@@ -36,7 +36,12 @@
         },
         {
           "name": "ResponderMensajeIntent",
-          "slots": [],
+          "slots": [
+            {
+              "name": "respuesta",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
           "samples": [
             "escribir respuesta",
             "enviar respuesta",
@@ -45,7 +50,12 @@
             "quiero responder",
             "responder",
             "responder mensaje",
-            "quiero contestar"
+            "quiero contestar",
+            "responder {respuesta}",
+            "contestar {respuesta}",
+            "decir {respuesta}",
+            "escribir {respuesta}",
+            "quiero responder {respuesta}"
           ]
         },
         {
@@ -53,6 +63,7 @@
           "slots": [],
           "samples": [
             "siguiente",
+            "siguientes",
             "siguiente mensaje",
             "continúa",
             "continua",
@@ -122,6 +133,39 @@
         }
       ],
       "types": []
-    }
+    },
+    "dialog": {
+      "delegationStrategy": "SKILL_RESPONSE",
+      "intents": [
+        {
+          "name": "ResponderMensajeIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "respuesta",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.Respuesta"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "prompts": [
+      {
+        "id": "Elicit.Slot.Respuesta",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "¿Qué deseas responder?"
+          }
+        ]
+      }
+    ]
   }
 }

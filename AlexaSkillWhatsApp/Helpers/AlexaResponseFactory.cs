@@ -21,6 +21,39 @@ public static class AlexaResponseFactory
         return JsonSerializer.Serialize(response);
     }
 
+    public static string ElicitSlot(string speech, string intentName, string slotName, ConversationState state)
+    {
+        var response = new
+        {
+            version = "1.0",
+            sessionAttributes = state.ToSessionAttributes(),
+            response = new
+            {
+                outputSpeech = new { type = "PlainText", text = speech },
+                directives = new object[]
+                {
+                    new
+                    {
+                        type = "Dialog.ElicitSlot",
+                        slotToElicit = slotName,
+                        updatedIntent = new
+                        {
+                            name = intentName,
+                            confirmationStatus = "NONE",
+                            slots = new Dictionary<string, object>
+                            {
+                                [slotName] = new { name = slotName, confirmationStatus = "NONE" }
+                            }
+                        }
+                    }
+                },
+                shouldEndSession = false
+            }
+        };
+
+        return JsonSerializer.Serialize(response);
+    }
+
     public static string EndConversation(string text, ConversationState? state = null)
     {
         var response = new AlexaResponse

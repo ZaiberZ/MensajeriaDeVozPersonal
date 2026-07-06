@@ -44,7 +44,16 @@ public class AlexaRequestRouter
 
     private async Task<string> Intent(AlexaRequest request)
     {
-        return (request.Request.Intent?.Name) switch
+        var intentName = request.Request.Intent?.Name;
+        var state = ConversationState.FromSession(request.Session?.Attributes);
+
+        if (state.WaitingForReply && intentName is not "ResponderMensajeIntent" and not "DictadoRespuestaIntent" and not "CancelarRespuestaIntent" and not "AMAZON.StopIntent" and not "AMAZON.CancelIntent")
+            return AlexaResponseFactory.ElicitSlot("No pude entender la respuesta. Dímela nuevamente.", "ResponderMensajeIntent", "respuesta", state);
+
+        if (state.WaitingForReplyConfirmation && intentName is not "ConfirmarIntent" and not "CancelarRespuestaIntent" and not "AMAZON.StopIntent" and not "AMAZON.CancelIntent")
+            return AlexaResponseFactory.Speak("Di sí para enviar la respuesta o no para cancelarla.", state);
+
+        return intentName switch
         {
             "LeerMensajesIntent" => await ReadMessages(),
             "SiguienteMensajeIntent" => await NextMessage(request),
@@ -124,11 +133,23 @@ public class AlexaRequestRouter
     {
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
+        if (!HasActiveConversation(state))
+        {
+            state.WaitingForReply = false;
+            state.WaitingForReplyConfirmation = false;
+            state.ReplyText = "";
+
+            return AlexaResponseFactory.Speak("Primero lee una conversación para poder responder.", state);
+        }
+
         state.WaitingForReply = true;
         state.WaitingForReplyConfirmation = false;
         state.ReplyText = "";
 
-        return AlexaResponseFactory.Speak("¿Qué deseas responder?", state);
+        if (TryGetReplyText(request, out var replyText))
+            return SaveReply(state, replyText);
+
+        return AlexaResponseFactory.ElicitSlot("¿Qué deseas responder?", "ResponderMensajeIntent", "respuesta", state);
     }
     private static string RepeatMessage(AlexaRequest request)
     {
@@ -149,20 +170,44 @@ public class AlexaRequestRouter
                 "Primero di responder para iniciar una respuesta.", state);
         }
 
-        if (request.Request.Intent?.Slots == null ||
-            !request.Request.Intent.Slots.TryGetValue("respuesta", out var slot) ||
-            string.IsNullOrWhiteSpace(slot.Value))
+        if (!TryGetReplyText(request, out var replyText))
         {
-            return AlexaResponseFactory.Speak(
-                "No pude entender la respuesta. Dímela nuevamente.", state);
+            return AlexaResponseFactory.ElicitSlot("No pude entender la respuesta. Dímela nuevamente.", "ResponderMensajeIntent", "respuesta", state);
         }
 
-        state.ReplyText = slot.Value.Trim();
+        return SaveReply(state, replyText);
+    }
+
+    private static string SaveReply(ConversationState state, string replyText)
+    {
+        state.ReplyText = replyText;
 
         state.WaitingForReply = false;
         state.WaitingForReplyConfirmation = true;
 
         return AlexaResponseFactory.Speak($"Entendí. {state.ReplyText}. ¿Deseas enviarlo?", state);
+    }
+
+    private static bool TryGetReplyText(AlexaRequest request, out string replyText)
+    {
+        replyText = "";
+
+        if (request.Request.Intent?.Slots == null ||
+            !request.Request.Intent.Slots.TryGetValue("respuesta", out var slot) ||
+            string.IsNullOrWhiteSpace(slot.Value))
+        {
+            return false;
+        }
+
+        replyText = slot.Value.Trim();
+        return true;
+    }
+
+    private static bool HasActiveConversation(ConversationState state)
+    {
+        return !string.IsNullOrWhiteSpace(state.CurrentMessageId) &&
+            !string.IsNullOrWhiteSpace(state.CurrentChatId) &&
+            !string.IsNullOrWhiteSpace(state.CurrentPhone);
     }
 
     private static string CancelReply(AlexaRequest request)
