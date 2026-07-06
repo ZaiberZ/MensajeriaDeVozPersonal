@@ -12,6 +12,8 @@ public class ConversationState
 
     public string CurrentMessageId { get; set; } = "";
 
+    public string CurrentConversationSpeech { get; set; } = "";
+
     public string CurrentSender { get; set; } = "";
     public string CurrentAccount { get; set; } = "";
 
@@ -41,6 +43,9 @@ public class ConversationState
 
         if (attributes.TryGetValue(nameof(CurrentMessageId), out var id))
             state.CurrentMessageId = id.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(CurrentConversationSpeech), out var currentConversationSpeech))
+            state.CurrentConversationSpeech = currentConversationSpeech.GetString() ?? "";
 
         if (attributes.TryGetValue(nameof(CurrentSender), out var sender))
             state.CurrentSender = sender.GetString() ?? "";
@@ -77,6 +82,7 @@ public class ConversationState
             { nameof(WaitingForReply), WaitingForReply },
             { nameof(WaitingForReplyConfirmation), WaitingForReplyConfirmation },
             { nameof(CurrentMessageId), CurrentMessageId },
+            { nameof(CurrentConversationSpeech), CurrentConversationSpeech },
             { nameof(CurrentSender), CurrentSender },
             { nameof(CurrentAccount), CurrentAccount },
             { nameof(ReplyText), ReplyText },
