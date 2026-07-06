@@ -9,6 +9,7 @@ namespace VoiceMessaging.Worker;
 public class Worker : BackgroundService
 {
     private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
+    private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(1);
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
@@ -66,9 +67,9 @@ public class Worker : BackgroundService
         var firebase = new FirebaseService(_user);
         await firebase.EnsureUserRegisteredAsync();
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
-        await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
+        var initialReadReconciliationCompleted = await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
-        var nextReadReconciliationAt = DateTime.UtcNow.Add(ReadReconciliationInterval);
+        var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
         string msgError = "";
 
         while (!stoppingToken.IsCancellationRequested)
@@ -88,8 +89,8 @@ public class Worker : BackgroundService
 
             if (DateTime.UtcNow >= nextReadReconciliationAt)
             {
-                await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
-                nextReadReconciliationAt = DateTime.UtcNow.Add(ReadReconciliationInterval);
+                var readReconciliationCompleted = await ReconcileUnreadMessagesAsync(whatsApp, firebase, stoppingToken);
+                nextReadReconciliationAt = DateTime.UtcNow.Add(readReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
             }
 
             msgError += await SaveNewMessages(whatsApp, firebase, stoppingToken);
@@ -133,16 +134,22 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ReconcileUnreadMessagesAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
+    private async Task<bool> ReconcileUnreadMessagesAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
     {
         try
         {
             var whatsAppUnreadMessages = await whatsApp.GetUnreadMessagesAsync();
 
+            if (whatsAppUnreadMessages == null)
+            {
+                _logger.LogDebug("Reconciliación de lectura omitida porque WhatsApp todavía no está conectado.");
+                return false;
+            }
+
             if (whatsAppUnreadMessages.Count == 0)
             {
                 _logger.LogInformation("Reconciliación de lectura completada. WhatsApp no tiene mensajes pendientes.");
-                return;
+                return true;
             }
 
             var firebaseMessages = await firebase.GetAllMessagesAsync();
@@ -192,6 +199,7 @@ public class Worker : BackgroundService
                 "Reconciliación de lectura completada. Mensajes recuperados: {added}; chats marcados como leídos: {readChats}.",
                 addedMessages,
                 readChats);
+            return true;
         }
         catch (Exception ex)
         {
@@ -200,6 +208,7 @@ public class Worker : BackgroundService
                 "error",
                 $"Error reconciliando mensajes leídos entre Firebase y WhatsApp: {ex}",
                 stoppingToken);
+            return false;
         }
     }
 

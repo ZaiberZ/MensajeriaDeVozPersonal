@@ -30,6 +30,7 @@ const hasSession = fs.existsSync(sessionPath);
 
 let initialized = false;
 let connected = false;
+let logoutInProgress = false;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
@@ -46,8 +47,15 @@ function getBundledChromePath() {
     for (const version of versions) {
         const chromePath = path.join(cachePath, version, "chrome-win64", "chrome.exe");
 
-        if (fs.existsSync(chromePath))
+        if (!fs.existsSync(chromePath))
+            continue;
+
+        const icuDataPath = path.join(path.dirname(chromePath), "icudtl.dat");
+
+        if (fs.existsSync(icuDataPath))
             return chromePath;
+
+        console.warn(`La instalación empaquetada de Chrome está incompleta; falta: ${icuDataPath}`);
     }
 
     return null;
@@ -84,7 +92,7 @@ function getChromePath() {
         return installedChromePath;
 
     throw new Error(
-        "No se encontró Chrome. Define CHROME_EXECUTABLE_PATH o instala Chrome dentro de WhatsAppGateway\\.cache.");
+        "No se encontró una instalación completa de Chrome. Define CHROME_EXECUTABLE_PATH o reinstala Chrome dentro de WhatsAppGateway\\.cache.");
 }
 
 
@@ -144,9 +152,18 @@ client.on("auth_failure", message => {
 client.on("disconnected", reason => {
 
     connected = false;
+    User.IsRegistered = false;
 
     console.log("WhatsApp desconectado.");
     console.log(reason);
+
+    if (reason === "LOGOUT" && fs.existsSync(readyFilePath))
+        fs.unlinkSync(readyFilePath);
+
+    if (!logoutInProgress) {
+        console.log("Reiniciando WhatsAppGateway para recuperar la conexión o generar un nuevo QR.");
+        setTimeout(() => process.exit(0), 1000);
+    }
 
 });
 
@@ -272,11 +289,28 @@ async function markChatAsRead(chatId) {
 }
 
 async function logout() {
+    logoutInProgress = true;
+
     try {
-        await client.logout();
+        const canLogoutRemotely = client.pupPage && !client.pupPage.isClosed() && client.pupBrowser?.isConnected();
+
+        if (canLogoutRemotely) {
+            try {
+                await client.logout();
+            } catch (error) {
+                console.warn("No se pudo cerrar la sesión desde WhatsApp Web; se eliminará la sesión local:");
+                console.warn(error);
+                await client.destroy();
+                await fs.promises.rm(sessionPath, { recursive: true, force: true, maxRetries: 4, retryDelay: 200 });
+            }
+        } else {
+            await client.destroy();
+            await fs.promises.rm(sessionPath, { recursive: true, force: true, maxRetries: 4, retryDelay: 200 });
+        }
     } finally {
         connected = false;
         lastQr = null;
+        User.IsRegistered = false;
 
         if (fs.existsSync(readyFilePath))
             fs.unlinkSync(readyFilePath);

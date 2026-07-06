@@ -127,8 +127,14 @@ function getLogs(level, limit = 200) {
     return filteredLogs.slice(-limit).reverse();
 }
 
+function clearLogs() {
+    ensureLogFile();
+    fs.writeFileSync(logFilePath, "[]", "utf8");
+}
+
 module.exports = {
     addLog,
+    clearLogs,
     getLogs,
     installConsoleCapture,
     logFilePath

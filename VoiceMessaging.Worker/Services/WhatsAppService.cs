@@ -41,9 +41,15 @@ public class WhatsAppService
         }
     }
 
-    public async Task<List<WhatsAppIncomingMessageDto>> GetUnreadMessagesAsync()
+    public async Task<List<WhatsAppIncomingMessageDto>?> GetUnreadMessagesAsync()
     {
-        var messages = await _httpClient.GetFromJsonAsync<List<WhatsAppIncomingMessageDto>>("/unread-messages");
+        var response = await _httpClient.GetAsync("/unread-messages");
+
+        if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
+            return null;
+
+        response.EnsureSuccessStatusCode();
+        var messages = await response.Content.ReadFromJsonAsync<List<WhatsAppIncomingMessageDto>>();
 
         return messages ?? [];
     }

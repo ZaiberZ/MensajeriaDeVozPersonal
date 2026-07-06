@@ -119,6 +119,9 @@ app.get("/unread-messages", async (req, res) => {
         const messages = await whatsapp.getUnreadMessages();
         res.json(messages);
     } catch (error) {
+        if (error.message === "WhatsApp no está conectado.")
+            return res.status(503).json({ success: false, error: error.message });
+
         console.error("Error al consultar mensajes no leídos:");
         console.error(error);
         res.status(500).json({ success: false, error: error.message });
@@ -154,6 +157,21 @@ app.post("/logout", async (req, res) => {
     } catch (error) {
         console.error("Error al cerrar la sesión de WhatsApp:");
         console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete("/logs", (req, res) => {
+    const origin = req.get("origin");
+    const expectedOrigin = `${req.protocol}://${req.get("host")}`;
+
+    if (origin && origin !== expectedOrigin)
+        return res.status(403).json({ success: false, error: "Origen no permitido." });
+
+    try {
+        logger.clearLogs();
+        res.json({ success: true, message: "Logs eliminados." });
+    } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });

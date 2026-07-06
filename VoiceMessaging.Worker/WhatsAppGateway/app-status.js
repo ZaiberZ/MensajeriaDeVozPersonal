@@ -74,6 +74,33 @@ async function refreshStatus() {
     }
 }
 
+document.getElementById("viewAllLogsButton").addEventListener("click", () => {
+    window.open("/logs?limit=1000", "_blank", "noopener");
+});
+
+document.getElementById("clearLogsButton").addEventListener("click", async () => {
+    if (!window.confirm("¿Deseas eliminar todos los logs del Gateway y del Worker?"))
+        return;
+
+    const button = document.getElementById("clearLogsButton");
+    button.disabled = true;
+
+    try {
+        const response = await fetch("/logs", { method: "DELETE" });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.error || "HTTP " + response.status);
+
+        renderErrorLogs([]);
+        document.getElementById("detail").textContent = "Todos los logs fueron eliminados.";
+    } catch (error) {
+        document.getElementById("detail").textContent = "No fue posible limpiar los logs: " + error.message;
+    } finally {
+        button.disabled = false;
+    }
+});
+
 document.getElementById("logoutButton").addEventListener("click", async () => {
     if (!window.confirm("¿Deseas cerrar la sesión actual de WhatsApp? Será necesario escanear un nuevo código QR."))
         return;
