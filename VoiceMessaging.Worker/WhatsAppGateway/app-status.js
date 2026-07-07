@@ -17,9 +17,11 @@ const setWhatsAppActions = connected => {
 
 const setAirbnbActions = status => {
     const toggleButton = document.getElementById("airbnbToggleButton");
+    const messagesButton = document.getElementById("airbnbMessagesButton");
     toggleButton.dataset.enabled = status.enabled ? "true" : "false";
     toggleButton.textContent = status.enabled ? "Deshabilitar Airbnb" : "Habilitar Airbnb";
-    document.getElementById("airbnbLoginLink").hidden = !status.enabled;
+    messagesButton.hidden = status.authenticated !== true;
+    document.getElementById("airbnbLoginLink").hidden = !status.enabled || status.authenticated === true;
 };
 
 const renderErrorLogs = logs => {
@@ -147,6 +149,11 @@ document.getElementById("airbnbToggleButton").addEventListener("click", async ()
     } finally {
         button.disabled = false;
     }
+});
+
+document.getElementById("airbnbMessagesButton").addEventListener("click", () => {
+    document.getElementById("detail").textContent = "Abriendo mensajes de Airbnb...";
+    window.location.href = "voicemessaging-airbnb://messages";
 });
 
 document.getElementById("logoutButton").addEventListener("click", async () => {

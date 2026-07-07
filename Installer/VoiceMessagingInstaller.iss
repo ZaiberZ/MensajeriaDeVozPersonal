@@ -33,7 +33,6 @@ Root: HKCR; Subkey: "voicemessaging-airbnb\shell\open\command"; ValueType: strin
 
 [Run]
 Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated
-Filename: "cmd.exe"; Parameters: "/C if exist ""{app}\WhatsAppGateway\.cache\chrome"" rmdir /S /Q ""{app}\WhatsAppGateway\.cache\chrome"""; StatusMsg: "Preparando instalación de Chrome..."; Flags: runhidden waituntilterminated
 Filename: "cmd.exe"; Parameters: "/C ""set PUPPETEER_CACHE_DIR={app}\WhatsAppGateway\.cache&& npx puppeteer browsers install chrome > chrome-install.log 2>&1"""; WorkingDir: "{app}\WhatsAppGateway"; Flags: waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
@@ -50,7 +49,12 @@ Filename: "{sys}\sc.exe"; Parameters: "delete VoiceMessagingWorker"; Flags: runh
 [UninstallDelete]
 ; La autenticacion de WhatsApp, los datos del usuario y los logs se guardan en
 ; {commonappdata}\VoiceMessaging y se conservan intencionalmente al desinstalar.
-Type: filesandordirs; Name: "{app}"
+; No se borra {app} completo para conservar dependencias y Chrome descargados
+; durante la instalacion: {app}\WhatsAppGateway\node_modules y
+; {app}\WhatsAppGateway\.cache. Inno Setup elimina automaticamente los archivos
+; instalados desde [Files].
+Type: dirifempty; Name: "{app}\WhatsAppGateway"
+Type: dirifempty; Name: "{app}"
 
 [Code]
 
