@@ -130,6 +130,14 @@ app.get("/logs", (req, res) => {
     res.json({ file: logger.logFilePath, count: logs.length, logs });
 });
 
+app.get("/logs/unreported-errors", (req, res) => {
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 100;
+    const result = logger.getUnreportedErrorLogs(limit);
+
+    res.json({ file: logger.logFilePath, count: result.count, logs: result.logs });
+});
+
 app.post("/logs", (req, res) => {
     try {
         const { level, message, source = "VoiceMessaging.Worker" } = req.body ?? {};
@@ -139,6 +147,16 @@ app.post("/logs", (req, res) => {
             return res.status(500).json({ success: false, message: "No fue posible guardar el log." });
 
         res.status(201).json({ success: true, log });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+});
+
+app.post("/logs/mark-reported", (req, res) => {
+    try {
+        const updatedCount = logger.markLogsReported(req.body?.ids);
+
+        res.json({ success: true, updatedCount });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
     }

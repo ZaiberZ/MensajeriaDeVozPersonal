@@ -44,6 +44,18 @@ const setAirbnbActions = status => {
     document.getElementById("airbnbLoginLink").hidden = !status.enabled || status.authenticated === true;
 };
 
+const formatLogDate = value => {
+    if (!value)
+        return "Fecha no disponible";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime()))
+        return "Fecha no disponible";
+
+    return date.toLocaleString();
+};
+
 const renderErrorLogs = logs => {
     const section = document.getElementById("errorLogsSection");
     const list = document.getElementById("errorLogs");
@@ -57,7 +69,10 @@ const renderErrorLogs = logs => {
 
         const meta = document.createElement("div");
         meta.className = "log-meta";
-        meta.textContent = `${new Date(log.timestamp).toLocaleString()} · ${log.source || "Sin origen"}`;
+        const date = log.lastAttemptAt || log.timestamp;
+        const repeatedText = log.attemptCount > 1 ? ` - ${log.attemptCount} intentos` : "";
+        const reportedText = log.reportedAt ? ` - Reportado: ${formatLogDate(log.reportedAt)}` : "";
+        meta.textContent = `${formatLogDate(date)} - ${log.source || "Sin origen"}${repeatedText}${reportedText}`;
 
         const message = document.createElement("p");
         message.className = "log-message";

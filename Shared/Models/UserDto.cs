@@ -13,6 +13,9 @@ public class UserDto
     [JsonPropertyName("Email")]
     public string Email { get; set; } = "";
 
+    [JsonPropertyName("SupportPhone")]
+    public string SupportPhone { get; set; } = "";
+
     [JsonPropertyName("IsRegistered")]
     public bool IsRegistered { get; set; }
 }

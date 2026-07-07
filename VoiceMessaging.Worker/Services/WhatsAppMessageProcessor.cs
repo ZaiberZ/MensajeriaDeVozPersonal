@@ -38,6 +38,7 @@ public class WhatsAppMessageProcessor
 
             var firebaseMessages = await _firebase.GetAllMessagesAsync();
             var addedMessages = 0;
+            var filteredMessages = 0;
             var readChats = 0;
             var hasUnreadMessagesInFirebase = firebaseMessages.Any(message => !message.IsRead);
 
@@ -47,6 +48,13 @@ public class WhatsAppMessageProcessor
 
                 foreach (var whatsAppMessage in chat)
                 {
+                    if (MessageFilter.IsAdvertising(whatsAppMessage))
+                    {
+                        filteredMessages++;
+                        _logger.LogInformation("Mensaje de publicidad omitido durante reconciliacion: {sender} - {text}", whatsAppMessage.Sender, CreateLogPreview(whatsAppMessage.Text));
+                        continue;
+                    }
+
                     var firebaseMessage = FindMatchingMessage(firebaseMessages, whatsAppMessage);
 
                     if (firebaseMessage == null)
@@ -80,8 +88,9 @@ public class WhatsAppMessageProcessor
                 await _firebase.SetHasPendingMessagesAsync(true);
 
             _logger.LogInformation(
-                "Reconciliación de lectura completada. Mensajes recuperados: {added}; chats marcados como leídos: {readChats}.",
+                "Reconciliación de lectura completada. Mensajes recuperados: {added}; mensajes de publicidad omitidos: {filtered}; chats marcados como leídos: {readChats}.",
                 addedMessages,
+                filteredMessages,
                 readChats);
             return true;
         }
@@ -106,11 +115,19 @@ public class WhatsAppMessageProcessor
 
             var firebaseMessages = await _firebase.GetAllMessagesAsync();
             var addedMessages = 0;
+            var filteredMessages = 0;
 
             foreach (var message in messages)
             {
                 try
                 {
+                    if (MessageFilter.IsAdvertising(message))
+                    {
+                        filteredMessages++;
+                        _logger.LogInformation("Mensaje de publicidad omitido: {sender} - {text}", message.Sender, CreateLogPreview(message.Text));
+                        continue;
+                    }
+
                     if (FindMatchingMessage(firebaseMessages, message) != null)
                     {
                         _logger.LogDebug("El mensaje {messageId} ya existe en Firebase.", message.Id);
@@ -134,6 +151,9 @@ public class WhatsAppMessageProcessor
 
             if (addedMessages > 0)
                 await _firebase.SetHasPendingMessagesAsync(true);
+
+            if (filteredMessages > 0)
+                _logger.LogInformation("Mensajes de publicidad omitidos: {filtered}.", filteredMessages);
         }
         catch (Exception ex)
         {
@@ -170,5 +190,13 @@ public class WhatsAppMessageProcessor
             firebaseMessage.ChatId == whatsAppMessage.ChatId &&
             ((!string.IsNullOrWhiteSpace(whatsAppMessage.Id) && firebaseMessage.ExternalMessageId == whatsAppMessage.Id) ||
              (firebaseMessage.Text == whatsAppMessage.Text && Math.Abs((firebaseMessage.Date - whatsAppMessage.Date).TotalSeconds) <= 2)));
+    }
+
+    private static string CreateLogPreview(string text)
+    {
+        if (text.Length <= 120)
+            return text;
+
+        return text[..120] + "...";
     }
 }

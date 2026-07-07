@@ -134,7 +134,12 @@ function isSupportedIncomingMessage(message) {
     return Boolean(message.body) &&
         !message.fromMe &&
         !chatId.includes("@g.us") &&
-        !chatId.includes("status@broadcast");
+        !chatId.includes("status@broadcast") &&
+        !isChannelChatId(chatId);
+}
+
+function isChannelChatId(chatId) {
+    return /@\w*newsletter\b/.test(chatId);
 }
 
 async function createIncomingMessage(message, senderFallback = "") {
@@ -206,7 +211,7 @@ async function getUnreadMessages() {
     for (const chat of chats) {
         const chatId = chat.id?._serialized || "";
 
-        if (chat.isGroup || chatId.includes("status@broadcast") || chat.unreadCount <= 0)
+        if (chat.isGroup || chat.isChannel || chatId.includes("status@broadcast") || isChannelChatId(chatId) || chat.unreadCount <= 0)
             continue;
 
         try {

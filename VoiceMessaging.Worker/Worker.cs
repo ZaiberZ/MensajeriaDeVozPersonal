@@ -3,6 +3,8 @@ using Shared.Configuration;
 using Shared.Models;
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Text;
+using VoiceMessaging.Worker.Models;
 using VoiceMessaging.Worker.Services;
 
 namespace VoiceMessaging.Worker;
@@ -13,6 +15,9 @@ public class Worker : BackgroundService
     private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan InternetConnectionRetryInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan InternetConnectionWarningDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan ErrorLogReportInterval = TimeSpan.FromDays(1);
+    private static readonly TimeSpan ErrorLogReportCheckInterval = TimeSpan.FromMinutes(30);
+    private const int ErrorLogReportLimit = 10;
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
@@ -81,6 +86,7 @@ public class Worker : BackgroundService
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
         var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
         var nextAirbnbCheckAt = DateTime.UtcNow;
+        var nextErrorLogReportCheckAt = DateTime.UtcNow;
         while (!stoppingToken.IsCancellationRequested)
         {
             if (!await IsGatewayRunningAsync(stoppingToken))
@@ -94,6 +100,12 @@ public class Worker : BackgroundService
                 }
 
                 await RegisterWorkerLogAsync("warning", "WhatsAppGateway dejó de responder y fue reiniciado por el Worker.", stoppingToken);
+            }
+
+            if (DateTime.UtcNow >= nextErrorLogReportCheckAt)
+            {
+                nextErrorLogReportCheckAt = DateTime.UtcNow.Add(ErrorLogReportCheckInterval);
+                await ReportUnreportedErrorLogsAsync(whatsApp, firebase, stoppingToken);
             }
 
             if (DateTime.UtcNow >= nextReadReconciliationAt)
@@ -252,6 +264,88 @@ public class Worker : BackgroundService
             _logger.LogError(ex, "Error limpiando mensajes leídos antiguos.");
             await RegisterWorkerLogAsync("error",$"Error limpiando mensajes leídos antiguos: {ex}",stoppingToken);
         }
+    }
+
+    private async Task ReportUnreportedErrorLogsAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_user.SupportPhone))
+                return;
+
+            var lastReportedAt = await firebase.GetLastErrorLogsReportedAtAsync(stoppingToken);
+
+            if (lastReportedAt.HasValue && DateTime.UtcNow - lastReportedAt.Value.ToUniversalTime() < ErrorLogReportInterval)
+                return;
+
+            var logsResponse = await whatsApp.GetUnreportedErrorLogsAsync(ErrorLogReportLimit, stoppingToken);
+
+            if (logsResponse.Logs.Count == 0)
+                return;
+
+            var logIds = logsResponse.AllIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
+
+            if (logIds.Count == 0)
+                return;
+
+            await whatsApp.SendMessageAsync(_user.SupportPhone, BuildErrorLogsReport(logsResponse), stoppingToken);
+            await firebase.SetLastErrorLogsReportedAtAsync(DateTime.UtcNow, stoppingToken);
+            await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
+
+            _logger.LogInformation("Reporte diario de errores enviado al telefono de soporte. Logs reportados: {count}.", logIds.Count);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "No fue posible enviar el reporte diario de errores al telefono de soporte.");
+            await RegisterWorkerLogAsync("error", $"No fue posible enviar el reporte diario de errores al telefono de soporte: {ex}", stoppingToken);
+        }
+    }
+
+    private static string BuildErrorLogsReport(GatewayLogsResponseDto logsResponse)
+    {
+        var builder = new StringBuilder();
+        var reportedCount = logsResponse.Logs.Count;
+
+        builder.AppendLine("Reporte diario de errores de Voice Messaging.");
+        builder.AppendLine($"Errores sin reportar: {logsResponse.Count}.");
+
+        if (logsResponse.Count > reportedCount)
+            builder.AppendLine($"Se muestran los ultimos {reportedCount}. Errores no incluidos en el mensaje: {logsResponse.Count - reportedCount}.");
+
+        builder.AppendLine();
+
+        foreach (var log in logsResponse.Logs)
+        {
+            var attemptText = log.AttemptCount > 1 ? $" ({log.AttemptCount} intentos)" : "";
+            builder.AppendLine($"- {FormatLogDate(log.LastAttemptAt == default ? log.Timestamp : log.LastAttemptAt)} [{log.Source}]{attemptText}: {CreateLogReportPreview(log.Message)}");
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static string FormatLogDate(DateTime date)
+    {
+        if (date == default)
+            return "fecha desconocida";
+
+        return date.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+
+    private static string CreateLogReportPreview(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return "(sin mensaje)";
+
+        var normalizedMessage = message.ReplaceLineEndings(" ").Trim();
+
+        if (normalizedMessage.Length <= 350)
+            return normalizedMessage;
+
+        return normalizedMessage[..350] + "...";
     }
 
     private async Task RegisterWorkerLogAsync(string level, string message, CancellationToken stoppingToken)

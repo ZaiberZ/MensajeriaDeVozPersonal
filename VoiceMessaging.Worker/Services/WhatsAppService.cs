@@ -1,5 +1,6 @@
-﻿using Shared.Models;
+using Shared.Models;
 using System.Net.Http.Json;
+using VoiceMessaging.Worker.Models;
 
 namespace VoiceMessaging.Worker.Services;
 
@@ -12,16 +13,12 @@ public class WhatsAppService
         _httpClient = http;
     }
 
-    public async Task SendMessageAsync(string phone, string text)
+    public async Task SendMessageAsync(string phone, string text, CancellationToken cancellationToken = default)
     {
         var request = new { phone, text };
+        var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request, cancellationToken);
 
-        var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request);
-
-        var body = await response.Content.ReadAsStringAsync();
-
-        Console.WriteLine($"Status: {response.StatusCode}");
-        Console.WriteLine(body);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task<List<WhatsAppIncomingMessageDto>> GetMessagesAsync()
@@ -71,6 +68,23 @@ public class WhatsAppService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<GatewayLogsResponseDto> GetUnreportedErrorLogsAsync(int limit, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.GetAsync($"/logs/unreported-errors?limit={limit}", cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<GatewayLogsResponseDto>(cancellationToken: cancellationToken)
+            ?? new GatewayLogsResponseDto();
+    }
+
+    public async Task MarkLogsAsReportedAsync(IEnumerable<string> ids, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/logs/mark-reported", new { ids }, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task SendReplyAsync(ReplyMessageDto reply)
     {
         var request = new
@@ -82,11 +96,6 @@ public class WhatsAppService
         };
 
         var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request);
-
-        // var body = await response.Content.ReadAsStringAsync();
-
-        // Console.WriteLine($"WhatsAppGateway status: {response.StatusCode}");
-        // Console.WriteLine(body);
 
         response.EnsureSuccessStatusCode();
     }

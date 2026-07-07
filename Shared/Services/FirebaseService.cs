@@ -64,6 +64,27 @@ public class FirebaseService
         return SetControlFlagAsync("has_pending_replies", value);
     }
 
+    public async Task<DateTime?> GetLastErrorLogsReportedAtAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"{ControlPath}/last_error_logs_reported_at.json", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return null;
+
+        return JsonSerializer.Deserialize<DateTime>(json, _jsonOptions);
+    }
+
+    public async Task SetLastErrorLogsReportedAtAsync(DateTime value, CancellationToken cancellationToken = default)
+    {
+        var json = JsonSerializer.Serialize(value, _jsonOptions);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{ControlPath}/last_error_logs_reported_at.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<bool> IsAirbnbEnabledAsync(CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetAsync($"{ConfigurationPath}/airbnb/enabled.json", cancellationToken);
