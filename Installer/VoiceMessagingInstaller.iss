@@ -36,11 +36,14 @@ Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGa
 Filename: "cmd.exe"; Parameters: "/C ""set PUPPETEER_CACHE_DIR={app}\WhatsAppGateway\.cache&& npx puppeteer browsers install chrome > chrome-install.log 2>&1"""; WorkingDir: "{app}\WhatsAppGateway"; Flags: waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
+Filename: "{sys}\schtasks.exe"; Parameters: "/Create /TN ""VoiceMessagingAirbnbChrome"" /SC ONLOGON /TR ""\""{app}\open-airbnb-login.cmd\"" voicemessaging-airbnb://messages"" /F"; Flags: runhidden waituntilterminated
+Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""VoiceMessagingAirbnbChrome"""; Flags: runhidden
 
 Filename: "{cmd}"; Parameters: "/C timeout /T 6 /NOBREAK"; Flags: runhidden waituntilterminated
 Filename: "http://localhost:3000/whatsapp/qr"; Description: "Abrir página de autenticación de WhatsApp"; Flags: shellexec postinstall skipifsilent
 
 [UninstallRun]
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""VoiceMessagingAirbnbChrome"" /F"; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "stop VoiceMessagingWorker"; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/C timeout /T 3 /NOBREAK"; Flags: runhidden waituntilterminated
 Filename: "taskkill.exe"; Parameters: "/F /IM node.exe"; Flags: runhidden

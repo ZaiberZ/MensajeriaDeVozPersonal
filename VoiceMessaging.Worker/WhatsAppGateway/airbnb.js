@@ -3,7 +3,6 @@ const os = require("os");
 const path = require("path");
 const puppeteer = require("puppeteer");
 const config = require("./gateway-config.json");
-const { getChromePath } = require("./chrome-path");
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const sessionPath = path.join(dataRoot, "VoiceMessaging", "airbnb-auth");
@@ -19,7 +18,6 @@ const airbnbMessageSelectors = {
 let browser = null;
 let page = null;
 let authenticated = false;
-let browserOwnedByGateway = false;
 let getUser = () => null;
 
 function configure(options = {}) {
@@ -95,18 +93,6 @@ function isBrowserRunning() {
     return browser?.connected === true && page && !page.isClosed();
 }
 
-function getLaunchOptions(visible = false) {
-    const options = {
-        headless: visible ? false : airbnbConfig.Headless === true,
-        userDataDir: sessionPath,
-        defaultViewport: null,
-        executablePath: getChromePath(),
-        args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    };
-
-    return options;
-}
-
 async function connectToVisibleBrowser() {
     const browserUrl = remoteDebuggingUrl.replace(/\/$/, "");
 
@@ -119,12 +105,11 @@ async function connectToVisibleBrowser() {
         browser = await puppeteer.connect({ browserURL: browserUrl, defaultViewport: null });
         browserOwnedByGateway = false;
         const pages = await browser.pages();
-        page = pages[0] ?? await browser.newPage();
+        page = pages.find(browserPage => updateAuthenticationFromUrl(browserPage.url())) ?? pages[0] ?? await browser.newPage();
         browser.on("disconnected", () => {
             browser = null;
             page = null;
             authenticated = false;
-            browserOwnedByGateway = false;
         });
         return true;
     } catch {
@@ -132,27 +117,14 @@ async function connectToVisibleBrowser() {
     }
 }
 
-async function ensureBrowser(allowLaunch = false) {
+async function ensureBrowser() {
     if (isBrowserRunning())
         return page;
 
     fs.mkdirSync(sessionPath, { recursive: true });
 
-    if (!await connectToVisibleBrowser()) {
-        if (!allowLaunch)
-            throw new Error("Airbnb no está abierto. Usa 'Iniciar sesión en Airbnb' para abrir su Chrome separado.");
-
-        browser = await puppeteer.launch(getLaunchOptions(true));
-        browserOwnedByGateway = true;
-        const pages = await browser.pages();
-        page = pages[0] ?? await browser.newPage();
-        browser.on("disconnected", () => {
-            browser = null;
-            page = null;
-            authenticated = false;
-            browserOwnedByGateway = false;
-        });
-    }
+    if (!await connectToVisibleBrowser())
+        throw new Error("Airbnb no está abierto. Usa 'Iniciar sesión en Airbnb' para abrir su Chrome separado.");
 
     return page;
 }
@@ -163,8 +135,8 @@ function updateAuthenticationFromUrl(url) {
     return authenticated;
 }
 
-async function navigateToMessages(allowLaunch = false) {
-    const currentPage = await ensureBrowser(allowLaunch);
+async function navigateToMessages() {
+    const currentPage = await ensureBrowser();
     await currentPage.goto(airbnbConfig.MessagesUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
     updateAuthenticationFromUrl(currentPage.url());
     return currentPage;
@@ -175,7 +147,7 @@ async function startAirbnb() {
         return getAirbnbStatus();
 
     try {
-        await navigateToMessages(false);
+        await navigateToMessages();
     } catch (error) {
         authenticated = false;
         console.error("No se pudo iniciar Airbnb:");
@@ -187,23 +159,27 @@ async function startAirbnb() {
 
 async function stopAirbnb() {
     if (browser?.connected) {
-        if (browserOwnedByGateway)
-            await browser.close();
-        else
-            await browser.disconnect();
+        await browser.disconnect();
     }
 
     browser = null;
     page = null;
     authenticated = false;
-    browserOwnedByGateway = false;
 }
 
 async function getAirbnbStatus() {
     const enabled = await isAirbnbEnabled();
 
-    if (enabled && !isBrowserRunning())
-        await connectToVisibleBrowser();
+    if (enabled && !isBrowserRunning()) {
+        const connected = await connectToVisibleBrowser().catch(error => {
+            authenticated = false;
+            console.warn(`No se pudo conectar al Chrome visible de Airbnb: ${error.message}`);
+            return false;
+        });
+
+        if (!connected)
+            authenticated = false;
+    }
 
     if (isBrowserRunning())
         updateAuthenticationFromUrl(page.url());
@@ -221,7 +197,7 @@ async function openAirbnbLogin() {
         throw new Error("Airbnb está deshabilitado.");
 
     try {
-        const currentPage = await navigateToMessages(true);
+        const currentPage = await navigateToMessages();
 
         if (!authenticated && !/airbnb\.[^/]+\/login/i.test(currentPage.url()))
             await currentPage.goto(airbnbConfig.LoginUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
@@ -243,7 +219,7 @@ async function getAirbnbMessages() {
     }
 
     try {
-        await navigateToMessages(false);
+        await navigateToMessages();
         console.log("Airbnb mensajes: URL después de navegar:", page.url());
 
         if (!authenticated) {
