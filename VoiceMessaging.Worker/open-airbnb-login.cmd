@@ -4,6 +4,7 @@ setlocal
 set "APP_DIR=%~dp0"
 set "LOG_DIR=%ProgramData%\VoiceMessaging"
 set "LOG_FILE=%LOG_DIR%\airbnb-launch.log"
+set "LOCK_DIR=%LOG_DIR%\airbnb-launch.lock"
 set "AIRBNB_PROFILE=%ProgramData%\VoiceMessaging\airbnb-auth"
 set "AIRBNB_URL=https://www.airbnb.com/hosting/messages/"
 set "AIRBNB_ACTION=%~1"
@@ -12,6 +13,14 @@ set "CHROME_DIR="
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 call :log "Iniciando lanzador de Airbnb."
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path '%LOCK_DIR%') { $item = Get-Item '%LOCK_DIR%'; if ($item.LastWriteTime -lt (Get-Date).AddMinutes(-5)) { Remove-Item '%LOCK_DIR%' -Recurse -Force } }"
+mkdir "%LOCK_DIR%" 2>nul
+if errorlevel 1 (
+    call :log "Ya hay otro lanzador de Airbnb en ejecucion. Se omite este intento."
+    exit /b 0
+)
+
 call :log "APP_DIR=%APP_DIR%"
 call :log "AIRBNB_PROFILE=%AIRBNB_PROFILE%"
 call :log "AIRBNB_ACTION=%AIRBNB_ACTION%"
@@ -31,6 +40,7 @@ if not defined CHROME_EXE (
     call :log "No se encontro Chrome."
     echo No se encontro Chrome. Reinstala Voice Messaging o instala Google Chrome.
     pause
+    rd "%LOCK_DIR%" 2>nul
     exit /b 1
 )
 
@@ -58,6 +68,7 @@ if /I "%AIRBNB_URL%"=="https://www.airbnb.com/hosting/messages/" (
 
 start "" /D "%CHROME_DIR%" "%CHROME_EXE%" "--remote-debugging-address=127.0.0.1" "--remote-debugging-port=9223" "--no-first-run" "--user-data-dir=%AIRBNB_PROFILE%" "%AIRBNB_URL%"
 call :log "start devolvio ERRORLEVEL=%ERRORLEVEL%"
+rd "%LOCK_DIR%" 2>nul
 exit /b 0
 
 :log
