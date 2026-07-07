@@ -51,11 +51,9 @@ if /I "%AIRBNB_URL%"=="https://www.airbnb.com/hosting/messages/" (
     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$targets = Invoke-RestMethod -Uri 'http://127.0.0.1:9223/json/list' -TimeoutSec 1; $target = @($targets | Where-Object { $_.url -like '*airbnb*hosting/messages*' } | Select-Object -First 1)[0]; if ($target) { Invoke-RestMethod -Uri ('http://127.0.0.1:9223/json/activate/' + $target.id) -TimeoutSec 1 | Out-Null; exit 0 }; exit 1"
     if "%ERRORLEVEL%"=="0" (
         call :log "Pestaña existente de mensajes activada."
-        start "" /D "%CHROME_DIR%" "%CHROME_EXE%" "--remote-debugging-address=127.0.0.1" "--remote-debugging-port=9223" "--no-first-run" "--user-data-dir=%AIRBNB_PROFILE%"
-        call :log "Chrome enfocado despues de activar pestaña existente. ERRORLEVEL=%ERRORLEVEL%"
-        exit /b 0
+    ) else (
+        call :log "No se encontro una pestaña existente de mensajes. Se abrira Chrome."
     )
-    call :log "No se encontro una pestaña existente de mensajes. Se abrira Chrome."
 )
 
 start "" /D "%CHROME_DIR%" "%CHROME_EXE%" "--remote-debugging-address=127.0.0.1" "--remote-debugging-port=9223" "--no-first-run" "--user-data-dir=%AIRBNB_PROFILE%" "%AIRBNB_URL%"
