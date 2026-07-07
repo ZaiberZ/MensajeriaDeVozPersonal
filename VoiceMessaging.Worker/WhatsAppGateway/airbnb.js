@@ -3,10 +3,12 @@ const os = require("os");
 const path = require("path");
 const puppeteer = require("puppeteer");
 const config = require("./gateway-config.json");
+const { getChromePath } = require("./chrome-path");
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const sessionPath = path.join(dataRoot, "VoiceMessaging", "airbnb-auth");
 const airbnbConfig = config.Airbnb ?? {};
+const remoteDebuggingUrl = process.env.AIRBNB_REMOTE_DEBUGGING_URL || airbnbConfig.RemoteDebuggingUrl || "http://127.0.0.1:9223";
 const airbnbMessageSelectors = {
     inbox: '[data-testid="inbox-container-marker"] #list_inbox',
     threadLinks: '[data-testid="inbox-container-marker"] #list_inbox a[data-testid^="inbox_list_"]',
@@ -17,6 +19,7 @@ const airbnbMessageSelectors = {
 let browser = null;
 let page = null;
 let authenticated = false;
+let browserOwnedByGateway = false;
 let getUser = () => null;
 
 function configure(options = {}) {
@@ -82,9 +85,7 @@ async function writeAirbnbEnabled(enabled) {
 async function setAirbnbEnabled(enabled) {
     await writeAirbnbEnabled(enabled);
 
-    if (enabled === true)
-        await startAirbnb();
-    else
+    if (enabled !== true)
         await stopAirbnb();
 
     return getAirbnbStatus();
@@ -99,29 +100,59 @@ function getLaunchOptions(visible = false) {
         headless: visible ? false : airbnbConfig.Headless === true,
         userDataDir: sessionPath,
         defaultViewport: null,
+        executablePath: getChromePath(),
         args: ["--no-sandbox", "--disable-setuid-sandbox"]
     };
-
-    if (process.env.CHROME_EXECUTABLE_PATH)
-        options.executablePath = process.env.CHROME_EXECUTABLE_PATH;
 
     return options;
 }
 
-async function ensureBrowser(visible = false) {
+async function connectToVisibleBrowser() {
+    const browserUrl = remoteDebuggingUrl.replace(/\/$/, "");
+
+    try {
+        const response = await fetch(`${browserUrl}/json/version`, { signal: AbortSignal.timeout(1000) });
+
+        if (!response.ok)
+            return false;
+
+        browser = await puppeteer.connect({ browserURL: browserUrl, defaultViewport: null });
+        browserOwnedByGateway = false;
+        const pages = await browser.pages();
+        page = pages[0] ?? await browser.newPage();
+        browser.on("disconnected", () => {
+            browser = null;
+            page = null;
+            authenticated = false;
+            browserOwnedByGateway = false;
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function ensureBrowser(allowLaunch = false) {
     if (isBrowserRunning())
         return page;
 
     fs.mkdirSync(sessionPath, { recursive: true });
-    browser = await puppeteer.launch(getLaunchOptions(visible));
-    const pages = await browser.pages();
-    page = pages[0] ?? await browser.newPage();
 
-    browser.on("disconnected", () => {
-        browser = null;
-        page = null;
-        authenticated = false;
-    });
+    if (!await connectToVisibleBrowser()) {
+        if (!allowLaunch)
+            throw new Error("Airbnb no está abierto. Usa 'Iniciar sesión en Airbnb' para abrir su Chrome separado.");
+
+        browser = await puppeteer.launch(getLaunchOptions(true));
+        browserOwnedByGateway = true;
+        const pages = await browser.pages();
+        page = pages[0] ?? await browser.newPage();
+        browser.on("disconnected", () => {
+            browser = null;
+            page = null;
+            authenticated = false;
+            browserOwnedByGateway = false;
+        });
+    }
 
     return page;
 }
@@ -132,8 +163,8 @@ function updateAuthenticationFromUrl(url) {
     return authenticated;
 }
 
-async function navigateToMessages(visible = false) {
-    const currentPage = await ensureBrowser(visible);
+async function navigateToMessages(allowLaunch = false) {
+    const currentPage = await ensureBrowser(allowLaunch);
     await currentPage.goto(airbnbConfig.MessagesUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
     updateAuthenticationFromUrl(currentPage.url());
     return currentPage;
@@ -155,16 +186,24 @@ async function startAirbnb() {
 }
 
 async function stopAirbnb() {
-    if (browser?.connected)
-        await browser.close();
+    if (browser?.connected) {
+        if (browserOwnedByGateway)
+            await browser.close();
+        else
+            await browser.disconnect();
+    }
 
     browser = null;
     page = null;
     authenticated = false;
+    browserOwnedByGateway = false;
 }
 
 async function getAirbnbStatus() {
     const enabled = await isAirbnbEnabled();
+
+    if (enabled && !isBrowserRunning())
+        await connectToVisibleBrowser();
 
     if (isBrowserRunning())
         updateAuthenticationFromUrl(page.url());

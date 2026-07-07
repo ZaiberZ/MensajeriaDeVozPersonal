@@ -22,7 +22,6 @@ app.use(express.json());
 airbnb.configure({ getUser: () => whatsapp.isConnected().User });
 
 whatsapp.initialize()
-    .then(() => airbnb.startAirbnb())
     .catch(error => {
         console.error("No se pudo completar la inicialización del Gateway:");
         console.error(error);

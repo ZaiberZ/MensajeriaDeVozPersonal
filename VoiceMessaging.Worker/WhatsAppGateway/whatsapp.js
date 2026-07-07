@@ -3,6 +3,7 @@ const qrcode = require("qrcode");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { getChromePath } = require("./chrome-path");
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
@@ -24,8 +25,6 @@ const readyFilePath = path.join(authPath, "personal.ready");
 const hasReadySession = fs.existsSync(readyFilePath);
 const userFilePath = path.join(dataDirectory, "user-data.json");
 
-process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, ".cache");
-
 const hasSession = fs.existsSync(sessionPath);
 
 let initialized = false;
@@ -37,66 +36,6 @@ let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
 const User = { "Phone": "", "FullName": "", "Email": "", IsRegistered: false };
-
-function getBundledChromePath() {
-    const cachePath = path.join(__dirname, ".cache", "chrome");
-
-    if (!fs.existsSync(cachePath))
-        return null;
-
-    const versions = fs.readdirSync(cachePath);
-
-    for (const version of versions) {
-        const chromePath = path.join(cachePath, version, "chrome-win64", "chrome.exe");
-
-        if (!fs.existsSync(chromePath))
-            continue;
-
-        const icuDataPath = path.join(path.dirname(chromePath), "icudtl.dat");
-
-        if (fs.existsSync(icuDataPath))
-            return chromePath;
-
-        console.warn(`La instalación empaquetada de Chrome está incompleta; falta: ${icuDataPath}`);
-    }
-
-    return null;
-}
-
-function getInstalledChromePath() {
-    const candidates = [
-        process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application", "chrome.exe"),
-        process.env["PROGRAMFILES(X86)"] && path.join(process.env["PROGRAMFILES(X86)"], "Google", "Chrome", "Application", "chrome.exe"),
-        process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe")
-    ].filter(Boolean);
-
-    return candidates.find(candidate => fs.existsSync(candidate)) ?? null;
-}
-
-function getChromePath() {
-    const configuredPath = process.env.CHROME_EXECUTABLE_PATH?.trim();
-
-    if (configuredPath) {
-        if (!fs.existsSync(configuredPath))
-            throw new Error(`CHROME_EXECUTABLE_PATH no existe: ${configuredPath}`);
-
-        return configuredPath;
-    }
-
-    const bundledChromePath = getBundledChromePath();
-
-    if (bundledChromePath)
-        return bundledChromePath;
-
-    const installedChromePath = getInstalledChromePath();
-
-    if (installedChromePath)
-        return installedChromePath;
-
-    throw new Error(
-        "No se encontró una instalación completa de Chrome. Define CHROME_EXECUTABLE_PATH o reinstala Chrome dentro de WhatsAppGateway\\.cache.");
-}
-
 
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "personal", dataPath: authPath }),

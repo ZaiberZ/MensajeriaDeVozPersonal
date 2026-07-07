@@ -369,3 +369,4 @@ FodyWeavers.xsd
 /VoiceMessaging.Worker/WhatsAppGateway/data/auth/session-personal
 /VoiceMessaging.Worker/WhatsAppGateway/data/auth
 AGENTS.md
+installer-check/VoiceMessagingInstaller.exe

@@ -24,7 +24,12 @@ Source: "AlexaWhatsApp.ico"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{commondesktop}\Voice Messaging QR"; Filename: "http://localhost:3000/status"; IconFilename: "{app}\AlexaWhatsApp.ico"
 Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/app-status"; IconFilename: "{app}\AlexaWhatsApp.ico"
-Name: "{commondesktop}\Abrir Airbnb"; Filename: "http://localhost:3000/airbnb/login"; IconFilename: "{app}\AlexaWhatsApp.ico"
+Name: "{commondesktop}\Abrir Airbnb"; Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"""; WorkingDir: "{app}"; IconFilename: "{app}\AlexaWhatsApp.ico"
+
+[Registry]
+Root: HKCR; Subkey: "voicemessaging-airbnb"; ValueType: string; ValueData: "URL:Voice Messaging Airbnb Login"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "voicemessaging-airbnb"; ValueName: "URL Protocol"; ValueType: string; ValueData: ""
+Root: HKCR; Subkey: "voicemessaging-airbnb\shell\open\command"; ValueType: string; ValueData: """{cmd}"" /C """"{app}\open-airbnb-login.cmd"" ""%1"""""
 
 [Run]
 Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated
