@@ -3,11 +3,12 @@ const path = require("path");
 
 process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, ".cache");
 
-function getBundledChromePath() {
+function getBundledChromeCandidate() {
     const cachePath = path.join(__dirname, ".cache", "chrome");
+    const missingFiles = [];
 
     if (!fs.existsSync(cachePath))
-        return null;
+        return { chromePath: null, missingFiles };
 
     const versions = fs.readdirSync(cachePath);
 
@@ -20,12 +21,12 @@ function getBundledChromePath() {
         const icuDataPath = path.join(path.dirname(chromePath), "icudtl.dat");
 
         if (fs.existsSync(icuDataPath))
-            return chromePath;
+            return { chromePath, missingFiles };
 
-        console.warn(`La instalacion empaquetada de Chrome esta incompleta; falta: ${icuDataPath}`);
+        missingFiles.push(icuDataPath);
     }
 
-    return null;
+    return { chromePath: null, missingFiles };
 }
 
 function getInstalledChromePath() {
@@ -48,15 +49,18 @@ function getChromePath() {
         return configuredPath;
     }
 
-    const bundledChromePath = getBundledChromePath();
+    const bundledChrome = getBundledChromeCandidate();
 
-    if (bundledChromePath)
-        return bundledChromePath;
+    if (bundledChrome.chromePath)
+        return bundledChrome.chromePath;
 
     const installedChromePath = getInstalledChromePath();
 
     if (installedChromePath)
         return installedChromePath;
+
+    for (const missingFile of bundledChrome.missingFiles)
+        console.warn(`La instalacion empaquetada de Chrome esta incompleta; falta: ${missingFile}`);
 
     throw new Error(
         "No se encontro una instalacion completa de Chrome. Define CHROME_EXECUTABLE_PATH o reinstala Chrome dentro de WhatsAppGateway\\.cache.");
