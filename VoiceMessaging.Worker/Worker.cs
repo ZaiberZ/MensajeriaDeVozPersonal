@@ -1,4 +1,5 @@
 using AlexaSkillWhatsApp.Services;
+using Shared.Configuration;
 using Shared.Models;
 using System.Diagnostics;
 using System.Net.Http.Json;
@@ -74,6 +75,7 @@ public class Worker : BackgroundService
         var airbnbProcessor = new AirbnbMessageProcessor(airbnb, firebase, _logger, RegisterWorkerLogAsync, airbnbGatewayEnabled);
         var pendingReplyProcessor = new PendingReplyProcessor(whatsAppProcessor, airbnbProcessor, firebase, _logger, RegisterWorkerLogAsync);
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
+        await RegisterWorkerStartedAtAsync(stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
         var initialReadReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
@@ -187,6 +189,18 @@ public class Worker : BackgroundService
 
             await Task.Delay(InternetConnectionRetryInterval, stoppingToken);
         }
+    }
+
+    private async Task RegisterWorkerStartedAtAsync(CancellationToken stoppingToken)
+    {
+        var userId = new string(_user.Phone.Where(char.IsDigit).ToArray());
+
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new InvalidOperationException("No se puede registrar el inicio del Worker porque el usuario no tiene un teléfono válido.");
+
+        using var httpClient = new HttpClient();
+        var response = await httpClient.PutAsJsonAsync($"{FirebaseSettings.User(userId)}/control/last_worker_started_at.json", DateTime.UtcNow, stoppingToken);
+        response.EnsureSuccessStatusCode();
     }
 
     private async Task ReportWorkerWaitingForUserAsync(WhatsAppService whatsApp, CancellationToken stoppingToken)

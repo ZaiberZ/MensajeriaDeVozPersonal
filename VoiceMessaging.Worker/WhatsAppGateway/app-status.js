@@ -1,7 +1,13 @@
 const setStatus = (id, kind, text) => {
     const element = document.getElementById(id);
+    if (!element)
+        return;
+
     element.className = "value " + kind;
-    element.querySelector("span:last-child").textContent = text;
+    const textElement = element.querySelector("span:last-child");
+
+    if (textElement)
+        textElement.textContent = text;
 };
 
 const setWhatsAppActions = connected => {
@@ -61,11 +67,9 @@ async function refreshStatus() {
 
         const status = await response.json();
 
-        setStatus("gateway", status.gatewayRunning ? "ok" : "bad", status.gatewayRunning ? "Ejecutándose" : "Sin respuesta");
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
         setWhatsAppActions(status.whatsappConnected);
-        setStatus("airbnbEnabled", status.airbnb.enabled ? "ok" : "warn", status.airbnb.enabled ? "Habilitado" : "Deshabilitado");
         setStatus(
             "airbnbSession",
             status.airbnb.authenticated ? "ok" : status.airbnb.enabled ? "warn" : "bad",
@@ -88,7 +92,6 @@ async function refreshStatus() {
         document.getElementById("updated").textContent = "Actualizado: " + new Date().toLocaleTimeString();
         await refreshErrorLogs();
     } catch (error) {
-        setStatus("gateway", "bad", "Sin respuesta");
         setWhatsAppActions(false);
         document.getElementById("detail").textContent = "No fue posible actualizar el estado: " + error.message;
     }
