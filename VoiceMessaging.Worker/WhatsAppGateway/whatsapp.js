@@ -35,7 +35,7 @@ const initializationMaxAttempts = 5;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
-const User = { "Phone": "", "FullName": "", "Email": "", IsRegistered: false };
+const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", IsRegistered: false };
 
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "personal", dataPath: authPath }),
@@ -312,7 +312,8 @@ function saveUser(user) {
     const savedUser = {
         Phone: user.phone,
         FullName: user.fullName,
-        Email: user.email
+        Email: user.email,
+        SupportPhone: user.supportPhone || ""
     };
 
     fs.mkdirSync(dataDirectory, { recursive: true });
@@ -321,6 +322,7 @@ function saveUser(user) {
     User.Phone = savedUser.Phone;
     User.FullName = savedUser.FullName;
     User.Email = savedUser.Email;
+    User.SupportPhone = savedUser.SupportPhone;
 }
 
 function loadUser() {
@@ -332,12 +334,14 @@ function loadUser() {
     User.Phone = savedUser.Phone || "";
     User.FullName = savedUser.FullName || "";
     User.Email = savedUser.Email || "";
+    User.SupportPhone = savedUser.SupportPhone || "";
 }
 
 function clearUser() {
     User.Phone = "";
     User.FullName = "";
     User.Email = "";
+    User.SupportPhone = "";
 
     if (fs.existsSync(userFilePath))
         fs.unlinkSync(userFilePath);

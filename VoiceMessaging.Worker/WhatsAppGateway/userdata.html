@@ -50,6 +50,7 @@
         }
 
         button:disabled { opacity: .65; }
+        .secondary { background: #1864ab; }
         .danger { background: #c92a2a; }
         dt { margin-top: 14px; font-weight: 600; }
         dd { margin: 4px 0 0; }
@@ -71,8 +72,11 @@
                 <dd id="savedPhone"></dd>
                 <dt>Correo electrónico</dt>
                 <dd id="savedEmail"></dd>
+                <dt>Telefono de soporte</dt>
+                <dd id="savedSupportPhone"></dd>
             </dl>
 
+            <button id="editUserButton" class="secondary" type="button">Modificar informacion</button>
             <button id="clearUserButton" class="danger" type="button">Limpiar información</button>
         </section>
 
@@ -85,6 +89,9 @@
 
             <label for="email">Correo electrónico</label>
             <input id="email" name="email" type="email" autocomplete="email" required>
+
+            <label for="supportPhone">Telefono de soporte opcional</label>
+            <input id="supportPhone" name="supportPhone" type="tel" autocomplete="tel">
 
             <button id="saveUserButton" type="submit">Guardar</button>
         </form>

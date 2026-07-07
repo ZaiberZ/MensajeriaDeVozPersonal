@@ -7,6 +7,7 @@ if (page === "qr") {
 
 if (page === "userdata") {
     document.getElementById("userForm").addEventListener("submit", saveUser);
+    document.getElementById("editUserButton").addEventListener("click", editUser);
     document.getElementById("clearUserButton").addEventListener("click", clearUser);
     loadUserData();
 }
@@ -58,6 +59,8 @@ async function loadUserData() {
             document.getElementById("savedFullName").textContent = user.FullName || "Sin especificar";
             document.getElementById("savedPhone").textContent = user.Phone;
             document.getElementById("savedEmail").textContent = user.Email || "Sin especificar";
+            document.getElementById("savedSupportPhone").textContent = user.SupportPhone || "Sin especificar";
+            setUserFormValues(user);
 
             message.textContent = "Usuario registrado.";
             registeredUser.hidden = false;
@@ -68,6 +71,7 @@ async function loadUserData() {
         message.textContent = "No hay un usuario registrado. Completa el formulario:";
         registeredUser.hidden = true;
         form.hidden = false;
+        form.reset();
     } catch (error) {
         message.textContent = error.message;
         message.classList.add("error");
@@ -75,6 +79,19 @@ async function loadUserData() {
         form.hidden = true;
         console.error(error);
     }
+}
+
+function setUserFormValues(user) {
+    document.getElementById("fullName").value = user.FullName || "";
+    document.getElementById("phone").value = user.Phone || "";
+    document.getElementById("email").value = user.Email || "";
+    document.getElementById("supportPhone").value = user.SupportPhone || "";
+}
+
+function editUser() {
+    document.getElementById("registeredUser").hidden = true;
+    document.getElementById("userForm").hidden = false;
+    document.getElementById("userMessage").textContent = "Modifica los datos actuales:";
 }
 
 async function saveUser(event) {
@@ -85,7 +102,8 @@ async function saveUser(event) {
     const body = {
         fullName: document.getElementById("fullName").value.trim(),
         phone: document.getElementById("phone").value.trim(),
-        email: document.getElementById("email").value.trim()
+        email: document.getElementById("email").value.trim(),
+        supportPhone: document.getElementById("supportPhone").value.trim()
     };
 
     if (!body.fullName || !body.phone || !body.email) {
