@@ -64,6 +64,10 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </None>
+    <None Update="WhatsAppGateway\gmail-config.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </None>
     <None Update="WhatsAppGateway\app-status.html">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

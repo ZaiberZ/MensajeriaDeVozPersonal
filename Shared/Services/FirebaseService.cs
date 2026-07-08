@@ -86,6 +86,29 @@ public class FirebaseService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task RegisterLastSentMessageAsync(ReplyMessageDto reply, DateTime sentAt, CancellationToken cancellationToken = default)
+    {
+        var payload = new
+        {
+            messageId = reply.MessageId,
+            replyId = reply.Id,
+            chatId = reply.ChatId,
+            phone = reply.Phone,
+            recipientPhone = reply.Phone,
+            recipientName = reply.Sender,
+            sender = reply.Sender,
+            account = reply.Account,
+            source = reply.Source,
+            text = reply.Text,
+            sentAt
+        };
+        var json = JsonSerializer.Serialize(payload, _jsonOptions);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{ControlPath}/last_sent_message.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<bool> IsAirbnbEnabledAsync(CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetAsync($"{ConfigurationPath}/airbnb/enabled.json", cancellationToken);

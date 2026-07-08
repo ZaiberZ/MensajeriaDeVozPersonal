@@ -114,6 +114,22 @@
           ]
         },
         {
+          "name": "LeerUltimosMensajesIntent",
+          "slots": [
+            {
+              "name": "cantidad",
+              "type": "AMAZON.NUMBER"
+            }
+          ],
+          "samples": [
+            "leer los últimos mensajes",
+            "lee los últimos {cantidad} mensajes",
+            "leer últimos {cantidad} mensajes",
+            "dime los últimos mensajes",
+            "últimos mensajes"
+          ]
+        },
+        {
           "name": "ConfigurarTelefonoIntent",
           "slots": [
             {

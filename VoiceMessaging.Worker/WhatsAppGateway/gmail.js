@@ -7,6 +7,8 @@ const config = require("./gateway-config.json");
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
 const userFilePath = path.join(dataDirectory, "user-data.json");
+const gmailConfigPath = path.join(__dirname, "gmail-config.json");
+const localGmailConfigPath = path.join(__dirname, "gmail-config.local.json");
 const defaultTokenFileName = "gmail-token.json";
 const processedFilePath = path.join(dataDirectory, "gmail-airbnb-processed.json");
 const gmailScopes = ["https://www.googleapis.com/auth/gmail.readonly"];
@@ -23,21 +25,23 @@ function ensureDataDirectory() {
     fs.mkdirSync(dataDirectory, { recursive: true });
 }
 
+function readJsonFile(filePath) {
+    return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+}
+
 function readUserData() {
     if (!fs.existsSync(userFilePath))
         return {};
 
-    return JSON.parse(fs.readFileSync(userFilePath, "utf8"));
-}
-
-function writeUserData(userData) {
-    ensureDataDirectory();
-    fs.writeFileSync(userFilePath, JSON.stringify(userData, null, 2), "utf8");
+    return readJsonFile(userFilePath);
 }
 
 function getGmailConfig() {
-    const userData = readUserData();
-    const gmail = userData.gmail || {};
+    const configPath = fs.existsSync(localGmailConfigPath) ? localGmailConfigPath : gmailConfigPath;
+    const gmail = fs.existsSync(configPath)
+        ? readJsonFile(configPath)
+        : {};
+
     const gmailConfig = {
         enabled: gmail.enabled !== false,
         clientId: gmail.clientId || "",
@@ -45,11 +49,6 @@ function getGmailConfig() {
         redirectUri: gmail.redirectUri || "http://localhost:3000/gmail/callback",
         tokenPath: gmail.tokenPath || defaultTokenFileName
     };
-
-    if (JSON.stringify(gmail) !== JSON.stringify(gmailConfig)) {
-        userData.gmail = gmailConfig;
-        writeUserData(userData);
-    }
 
     return gmailConfig;
 }
@@ -65,7 +64,7 @@ function createOAuthClient() {
     const gmailConfig = getGmailConfig();
 
     if (!gmailConfig.clientId || !gmailConfig.clientSecret)
-        throw new Error("Configura gmail.clientId y gmail.clientSecret en user-data.json.");
+        throw new Error("Configura clientId y clientSecret en WhatsAppGateway/gmail-config.json o gmail-config.local.json.");
 
     return new google.auth.OAuth2(gmailConfig.clientId, gmailConfig.clientSecret, gmailConfig.redirectUri);
 }
@@ -76,7 +75,7 @@ function readToken() {
     if (!fs.existsSync(tokenPath))
         return null;
 
-    return JSON.parse(fs.readFileSync(tokenPath, "utf8"));
+    return readJsonFile(tokenPath);
 }
 
 function saveToken(token) {
@@ -292,7 +291,7 @@ function readProcessedIds() {
     if (!fs.existsSync(processedFilePath))
         return new Set();
 
-    const ids = JSON.parse(fs.readFileSync(processedFilePath, "utf8"));
+    const ids = readJsonFile(processedFilePath);
     return new Set(Array.isArray(ids) ? ids : []);
 }
 

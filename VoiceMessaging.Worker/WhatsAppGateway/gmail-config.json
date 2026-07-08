@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "clientId": "293487564139-dh69e5ha880pf9akhh6kqj44sf5hbodu.apps.googleusercontent.com",
+  "clientSecret": "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",
+  "redirectUri": "http://localhost:3000/gmail/callback",
+  "tokenPath": "gmail-token.json"
+}

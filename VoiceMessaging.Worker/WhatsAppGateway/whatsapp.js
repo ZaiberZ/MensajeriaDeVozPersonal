@@ -53,6 +53,11 @@ const client = new Client({
         ]
     }
 });
+
+function readJsonFile(filePath) {
+    return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+}
+
 function getQr() {
     return lastQr;
 }
@@ -334,16 +339,12 @@ async function getContacts() {
 }
 
 function saveUser(user) {
-    const existingUser = fs.existsSync(userFilePath)
-        ? JSON.parse(fs.readFileSync(userFilePath, "utf8"))
-        : {};
     const savedUser = {
         Phone: user.phone,
         FullName: user.fullName,
         Email: user.email,
         SupportPhone: user.supportPhone || "",
-        SecondAribnbPhone: user.secondAribnbPhone || "",
-        gmail: existingUser.gmail
+        SecondAribnbPhone: user.secondAribnbPhone || ""
     };
 
     fs.mkdirSync(dataDirectory, { recursive: true });
@@ -360,7 +361,7 @@ function loadUser() {
     if (!fs.existsSync(userFilePath))
         return;
 
-    const savedUser = JSON.parse(fs.readFileSync(userFilePath, "utf8"));
+    const savedUser = readJsonFile(userFilePath);
 
     User.Phone = savedUser.Phone || "";
     User.FullName = savedUser.FullName || "";

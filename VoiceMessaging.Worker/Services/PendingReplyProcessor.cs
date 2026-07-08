@@ -35,6 +35,8 @@ public class PendingReplyProcessor
             {
                 try
                 {
+                    var sent = false;
+
                     if (string.Equals(reply.Source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase))
                     {
                         _logger.LogWarning("AirbnbEmail replies are not supported yet.");
@@ -43,6 +45,7 @@ public class PendingReplyProcessor
                     else if (string.Equals(reply.Source, "Airbnb", StringComparison.OrdinalIgnoreCase))
                     {
                         await _airbnbProcessor.SendReplyAsync(reply, stoppingToken);
+                        sent = true;
                     }
                     else if (string.IsNullOrWhiteSpace(reply.Phone))
                     {
@@ -54,7 +57,11 @@ public class PendingReplyProcessor
                     else
                     {
                         await _whatsAppProcessor.SendReplyAsync(reply);
+                        sent = true;
                     }
+
+                    if (sent)
+                        await _firebase.RegisterLastSentMessageAsync(reply, DateTime.UtcNow, stoppingToken);
 
                     await _firebase.DeleteReplyAsync(reply.Id);
                     _logger.LogInformation("Respuesta procesada y eliminada de Firebase: {sender} - {text}", reply.Sender, reply.Text);
