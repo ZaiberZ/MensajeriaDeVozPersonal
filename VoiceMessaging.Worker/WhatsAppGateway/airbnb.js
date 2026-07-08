@@ -42,7 +42,7 @@ async function isAirbnbEnabled() {
     const enabledUrl = getEnabledUrl();
 
     if (!enabledUrl)
-        return airbnbConfig.Enabled === true;
+        return false;
 
     try {
         const response = await fetch(enabledUrl, { signal: AbortSignal.timeout(5000) });
@@ -51,15 +51,15 @@ async function isAirbnbEnabled() {
             throw new Error(`Firebase respondió HTTP ${response.status}.`);
 
         const value = await response.json();
-        if (value === null && airbnbConfig.Enabled === true) {
-            await writeAirbnbEnabled(true);
-            return true;
+        if (value === null) {
+            await writeAirbnbEnabled(false);
+            return false;
         }
 
         return value === true;
     } catch (error) {
         console.warn(`No se pudo leer la configuración de Airbnb en Firebase: ${error.message}`);
-        return airbnbConfig.Enabled === true;
+        return false;
     }
 }
 

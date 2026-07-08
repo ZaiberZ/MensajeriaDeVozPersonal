@@ -91,7 +91,22 @@ public class FirebaseService
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        return !string.IsNullOrWhiteSpace(json) && json != "null" && JsonSerializer.Deserialize<bool>(json, _jsonOptions);
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+        {
+            await SetAirbnbEnabledAsync(false, cancellationToken);
+            return false;
+        }
+
+        return JsonSerializer.Deserialize<bool>(json, _jsonOptions);
+    }
+
+    public async Task SetAirbnbEnabledAsync(bool value, CancellationToken cancellationToken = default)
+    {
+        var json = JsonSerializer.Serialize(value, _jsonOptions);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{ConfigurationPath}/airbnb/enabled.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
     }
 
     private async Task SetControlFlagAsync(string flag, bool value)
@@ -111,13 +126,17 @@ public class FirebaseService
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(json) && json != "null")
+        {
+            await IsAirbnbEnabledAsync(cancellationToken);
             return;
+        }
 
         var userJson = JsonSerializer.Serialize(_user);
         var content = new StringContent(userJson, Encoding.UTF8, "application/json");
         var createResponse = await _httpClient.PutAsync($"{UserPath}.json", content, cancellationToken);
 
         createResponse.EnsureSuccessStatusCode();
+        await SetAirbnbEnabledAsync(false, cancellationToken);
     }
     public async Task<List<MessageDto>> GetPendingMessagesAsync()
     {

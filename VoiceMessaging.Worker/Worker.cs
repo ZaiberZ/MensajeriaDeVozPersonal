@@ -120,7 +120,7 @@ public class Worker : BackgroundService
 
                 try
                 {
-                    if (await airbnbProcessor.IsEnabledAsync(stoppingToken))
+                    if (await firebase.IsAirbnbEnabledAsync(stoppingToken) && await airbnbProcessor.IsEnabledAsync(stoppingToken))
                         await airbnbProcessor.SaveNewMessagesAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

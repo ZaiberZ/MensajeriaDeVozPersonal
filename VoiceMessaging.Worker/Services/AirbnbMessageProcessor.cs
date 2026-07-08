@@ -22,7 +22,7 @@ public class AirbnbMessageProcessor
 
     public async Task<bool> IsEnabledAsync(CancellationToken stoppingToken)
     {
-        return _gatewayEnabled && await _airbnb.IsAuthenticatedAsync(stoppingToken);
+        return _gatewayEnabled && await _firebase.IsAirbnbEnabledAsync(stoppingToken) && await _airbnb.IsAuthenticatedAsync(stoppingToken);
     }
 
     public async Task SaveNewMessagesAsync(CancellationToken stoppingToken)

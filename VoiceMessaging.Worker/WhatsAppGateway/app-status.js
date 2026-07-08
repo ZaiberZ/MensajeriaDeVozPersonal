@@ -20,12 +20,20 @@ const openAirbnbMessages = () => {
 };
 
 const setAirbnbActions = status => {
+    const enabled = status?.enabled === true;
+    document.getElementById("airbnbCard").hidden = !enabled;
+
     const toggleButton = document.getElementById("airbnbToggleButton");
     const messagesButton = document.getElementById("airbnbMessagesButton");
-    toggleButton.dataset.enabled = status.enabled ? "true" : "false";
-    toggleButton.textContent = status.enabled ? "Deshabilitar Airbnb" : "Habilitar Airbnb";
-    messagesButton.hidden = status.authenticated !== true;
-    document.getElementById("airbnbLoginLink").hidden = !status.enabled || status.authenticated === true;
+    toggleButton.hidden = !enabled;
+    messagesButton.hidden = !enabled || status.authenticated !== true;
+    document.getElementById("airbnbLoginLink").hidden = !enabled || status.authenticated === true;
+
+    if (!enabled)
+        return;
+
+    toggleButton.dataset.enabled = "true";
+    toggleButton.textContent = "Deshabilitar Airbnb";
 };
 
 const formatLogDate = value => {
@@ -91,11 +99,13 @@ async function refreshStatus() {
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
         setWhatsAppActions(status.whatsappConnected);
-        setStatus(
-            "airbnbSession",
-            status.airbnb.authenticated ? "ok" : status.airbnb.enabled ? "warn" : "bad",
-            status.airbnb.authenticated ? "Autenticada" : status.airbnb.enabled ? "Requiere login" : "No iniciada");
         setAirbnbActions(status.airbnb);
+        if (status.airbnb?.enabled === true) {
+            setStatus(
+                "airbnbSession",
+                status.airbnb.authenticated ? "ok" : "warn",
+                status.airbnb.authenticated ? "Autenticada" : "Requiere login");
+        }
         setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
 
         if (!status.workerRunning)
