@@ -6,7 +6,7 @@ const logger = require("./logger");
 logger.installConsoleCapture();
 
 const whatsapp = require("./whatsapp");
-const airbnb = require("./airbnb");
+const gmail = require("./gmail");
 
 const app = express();
 const workerStatus = {
@@ -20,7 +20,7 @@ app.use(express.static(__dirname));
 app.use(cors());
 app.use(express.json());
 
-airbnb.configure({ getUser: () => whatsapp.isConnected().User });
+gmail.configure({ getUser: () => whatsapp.isConnected().User });
 
 whatsapp.initialize()
     .catch(error => {
@@ -45,7 +45,12 @@ app.post("/worker-status", (req, res) => {
 
 app.get("/app-status-data", async (req, res) => {
     const whatsappStatus = whatsapp.isConnected();
-    const airbnbStatus = await airbnb.getAirbnbStatus();
+    const airbnbStatus = await getAirbnbStatus();
+    const gmailStatus = await gmail.getStatus().catch(error => ({
+        enabled: true,
+        authenticated: false,
+        message: error.message
+    }));
     const workerRunning = workerStatus.lastHeartbeat !== null &&
         Date.now() - workerStatus.lastHeartbeat.getTime() <= workerHeartbeatTimeoutMs;
 
@@ -54,6 +59,7 @@ app.get("/app-status-data", async (req, res) => {
         workerRunning,
         whatsappConnected: whatsappStatus.connected === true,
         airbnb: airbnbStatus,
+        gmail: gmailStatus,
         userPhoneRegistered: Boolean(whatsappStatus.User?.Phone?.trim()),
         hasPendingMessages: workerRunning ? workerStatus.hasPendingMessages : null,
         lastWorkerHeartbeat: workerStatus.lastHeartbeat?.toISOString() ?? null
@@ -83,6 +89,60 @@ function requireCurrentUserPhone() {
 
 function frequentContactsPath(phone) {
     return `${firebaseBaseUrl}/usuarios/${phone}/contactos_frecuentes`;
+}
+
+function airbnbEnabledPath(phone) {
+    return `${firebaseBaseUrl}/usuarios/${phone}/configuracion/airbnb/enabled.json`;
+}
+
+function disabledAirbnbPuppeteerResponse() {
+    return {
+        enabled: false,
+        running: false,
+        authenticated: false,
+        loginRequired: false,
+        message: "Airbnb Puppeteer integration disabled. Use Gmail integration."
+    };
+}
+
+async function readAirbnbEnabled() {
+    const phone = getCurrentUserPhone();
+
+    if (!phone)
+        return false;
+
+    try {
+        const response = await fetch(airbnbEnabledPath(phone), { signal: AbortSignal.timeout(5000) });
+
+        if (!response.ok)
+            throw new Error(`Firebase respondió HTTP ${response.status}.`);
+
+        const value = await response.json();
+        return value === true;
+    } catch (error) {
+        console.warn(`No se pudo leer la configuración de Airbnb en Firebase: ${error.message}`);
+        return false;
+    }
+}
+
+async function writeAirbnbEnabled(enabled) {
+    const phone = requireCurrentUserPhone();
+    const response = await fetch(airbnbEnabledPath(phone), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(enabled === true),
+        signal: AbortSignal.timeout(10000)
+    });
+
+    if (!response.ok)
+        throw new Error(`Firebase respondió HTTP ${response.status}.`);
+}
+
+async function getAirbnbStatus() {
+    return {
+        ...disabledAirbnbPuppeteerResponse(),
+        enabled: await readAirbnbEnabled()
+    };
 }
 
 function sanitizeContactId(contact) {
@@ -197,44 +257,22 @@ app.delete("/contacts/frequent/:id", async (req, res) => {
 });
 
 app.get("/airbnb/status", async (req, res) => {
-    try {
-        res.json(await airbnb.getAirbnbStatus());
-    } catch (error) {
-        console.error("Error al consultar el estado de Airbnb:");
-        console.error(error);
-        res.status(500).json({ success: false, message: error.message });
-    }
+    res.json(await getAirbnbStatus());
 });
 
 app.get("/airbnb/login", async (req, res) => {
-    try {
-        await airbnb.openAirbnbLogin();
-        res.json({ success: true, message: "Airbnb login opened" });
-    } catch (error) {
-        res.status(409).json({ success: false, message: error.message });
-    }
+    res.status(410).json(disabledAirbnbPuppeteerResponse());
 });
 
 app.get("/airbnb/messages", async (req, res) => {
-    try {
-        res.json(await airbnb.getAirbnbMessages());
-    } catch (error) {
-        console.error("Error al consultar mensajes de Airbnb:");
-        console.error(error);
-        res.status(500).json({ success: false, message: error.message });
-    }
+    res.json([]);
 });
 
 app.post("/airbnb/send", async (req, res) => {
-    try {
-        const { chatId, text } = req.body ?? {};
-        const result = await airbnb.sendAirbnbMessage(chatId, text);
-        res.status(result.success ? 200 : 501).json(result);
-    } catch (error) {
-        console.error("Error al enviar mensaje de Airbnb:");
-        console.error(error);
-        res.status(500).json({ success: false, message: error.message });
-    }
+    res.status(501).json({
+        success: false,
+        message: "Airbnb Puppeteer integration disabled. AirbnbEmail replies are not supported yet."
+    });
 });
 
 app.put("/airbnb/enabled", async (req, res) => {
@@ -245,10 +283,55 @@ app.put("/airbnb/enabled", async (req, res) => {
         return res.status(403).json({ success: false, message: "Origen no permitido." });
 
     try {
-        const status = await airbnb.setAirbnbEnabled(req.body?.enabled === true);
-        res.json({ success: true, status });
+        await writeAirbnbEnabled(req.body?.enabled === true);
+        res.json({ success: true, status: await getAirbnbStatus() });
     } catch (error) {
         console.error("Error al actualizar la configuración de Airbnb:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.get("/gmail/status", async (req, res) => {
+    try {
+        res.json(await gmail.getStatus());
+    } catch (error) {
+        res.status(500).json({ enabled: true, authenticated: false, message: error.message });
+    }
+});
+
+app.get("/gmail/login", (req, res) => {
+    try {
+        res.redirect(gmail.getLoginUrl());
+    } catch (error) {
+        res.status(400).send(error.message);
+    }
+});
+
+app.get("/gmail/callback", async (req, res) => {
+    try {
+        await gmail.handleOAuthCallback(req.query.code);
+        res.send("<!doctype html><html lang=\"es\"><body><h1>Gmail conectado correctamente.</h1><p>Puedes cerrar esta ventana.</p></body></html>");
+    } catch (error) {
+        res.status(400).send(`No fue posible conectar Gmail: ${error.message}`);
+    }
+});
+
+app.get("/gmail/airbnb/messages", async (req, res) => {
+    try {
+        res.json(await gmail.getAirbnbMessages({ includeProcessed: true }));
+    } catch (error) {
+        console.error("Error al consultar mensajes Airbnb desde Gmail:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post("/gmail/airbnb/sync", async (req, res) => {
+    try {
+        res.json(await gmail.syncAirbnbMessages());
+    } catch (error) {
+        console.error("Error al sincronizar mensajes Airbnb desde Gmail:");
         console.error(error);
         res.status(500).json({ success: false, message: error.message });
     }

@@ -334,11 +334,15 @@ async function getContacts() {
 }
 
 function saveUser(user) {
+    const existingUser = fs.existsSync(userFilePath)
+        ? JSON.parse(fs.readFileSync(userFilePath, "utf8"))
+        : {};
     const savedUser = {
         Phone: user.phone,
         FullName: user.fullName,
         Email: user.email,
-        SupportPhone: user.supportPhone || ""
+        SupportPhone: user.supportPhone || "",
+        gmail: existingUser.gmail
     };
 
     fs.mkdirSync(dataDirectory, { recursive: true });

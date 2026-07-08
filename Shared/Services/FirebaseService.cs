@@ -193,7 +193,7 @@ public class FirebaseService
 
     public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text)
     {
-        if (string.IsNullOrWhiteSpace(phone) && !string.Equals(currentSource, "Airbnb", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(phone) && !SupportsReplyWithoutPhone(currentSource))
             throw new ArgumentException("No se puede guardar una respuesta sin destinatario.", nameof(phone));
 
         var reply = new ReplyMessageDto
@@ -344,7 +344,7 @@ public class FirebaseService
             if (dictionary == null) return [];
 
             var replies = dictionary.Where(item => item.Value != null &&
-                (!string.IsNullOrWhiteSpace(item.Value.Phone) || string.Equals(item.Value.Source, "Airbnb", StringComparison.OrdinalIgnoreCase)))
+                (!string.IsNullOrWhiteSpace(item.Value.Phone) || SupportsReplyWithoutPhone(item.Value.Source)))
            .Select(item =>
            {
                item.Value.Id = item.Key;
@@ -379,5 +379,11 @@ public class FirebaseService
         var response = await _httpClient.DeleteAsync($"{OutgoingMessagesPath}/{replyId}.json");
 
         response.EnsureSuccessStatusCode();
+    }
+
+    private static bool SupportsReplyWithoutPhone(string source)
+    {
+        return string.Equals(source, "Airbnb", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase);
     }
 }

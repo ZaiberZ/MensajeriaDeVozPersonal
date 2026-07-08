@@ -53,7 +53,7 @@ public class Worker : BackgroundService
         var whatsApp = new WhatsAppService(client);
         var airbnbClient = new HttpClient { BaseAddress = new Uri(_configuration["AirbnbGateway:BaseUrl"] ?? _configuration["WhatsAppGateway:Url"]!) };
         var airbnb = new AirbnbService(airbnbClient);
-        var airbnbGatewayEnabled = _configuration.GetValue<bool>("AirbnbGateway:Enabled");
+        var airbnbGatewayEnabled = false;
         var airbnbCheckInterval = TimeSpan.FromSeconds(Math.Max(10, _configuration.GetValue("AirbnbGateway:CheckIntervalSeconds", 60)));
         var missingUserWarningLogged = false;
 

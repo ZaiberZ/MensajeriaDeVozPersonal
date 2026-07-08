@@ -152,6 +152,9 @@ public class AlexaRequestRouter
             return AlexaResponseFactory.Speak("Primero lee una conversación para poder responder.", state);
         }
 
+        if (IsAirbnbSource(state.CurrentSource))
+            return BlockAirbnbReply(state);
+
         state.WaitingForReply = true;
         state.WaitingForReplyConfirmation = false;
         state.ReplyText = "";
@@ -277,6 +280,9 @@ public class AlexaRequestRouter
                 "Primero di responder para iniciar una respuesta.", state);
         }
 
+        if (IsAirbnbSource(state.CurrentSource))
+            return BlockAirbnbReply(state);
+
         if (!TryGetReplyText(request, out var replyText))
         {
             return AlexaResponseFactory.ElicitSlot("No pude entender la respuesta. Dímela nuevamente.", "ResponderMensajeIntent", "respuesta", state);
@@ -334,8 +340,28 @@ public class AlexaRequestRouter
     {
         return !string.IsNullOrWhiteSpace(state.CurrentMessageId) &&
             !string.IsNullOrWhiteSpace(state.CurrentChatId) &&
-            (!string.IsNullOrWhiteSpace(state.CurrentPhone) ||
-             string.Equals(state.CurrentSource, "Airbnb", StringComparison.OrdinalIgnoreCase));
+            (!string.IsNullOrWhiteSpace(state.CurrentPhone) || SupportsReplyWithoutPhone(state.CurrentSource));
+    }
+
+    private static bool SupportsReplyWithoutPhone(string source)
+    {
+        return string.Equals(source, "Airbnb", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsAirbnbSource(string source)
+    {
+        return string.Equals(source, "Airbnb", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BlockAirbnbReply(ConversationState state)
+    {
+        state.WaitingForReply = false;
+        state.WaitingForReplyConfirmation = false;
+        state.ReplyText = "";
+
+        return AlexaResponseFactory.Speak("Por ahora solo puedo leer mensajes de Airbnb. No puedo responderlos desde Alexa.", state);
     }
 
     private static string CancelReply(AlexaRequest request)
@@ -373,7 +399,13 @@ public class AlexaRequestRouter
                 "No hay una respuesta pendiente por enviar. Primero di responder.", state);
         }
 
-        if (string.IsNullOrWhiteSpace(state.CurrentPhone) && !string.Equals(state.CurrentSource, "Airbnb", StringComparison.OrdinalIgnoreCase))
+        if (IsAirbnbSource(state.CurrentSource))
+        {
+            context.Logger.LogLine("No se guardó la respuesta porque los mensajes de Airbnb no se pueden responder desde Alexa.");
+            return BlockAirbnbReply(state);
+        }
+
+        if (string.IsNullOrWhiteSpace(state.CurrentPhone) && !SupportsReplyWithoutPhone(state.CurrentSource))
         {
             context.Logger.LogLine("No se guardó la respuesta porque el estado de la conversación no tiene destinatario.");
 
@@ -463,7 +495,7 @@ public class AlexaRequestRouter
         {
             sb.Append(
                 $"Mensaje {index}. " +
-                $"{message.Sender} dice. " +
+                $"{ConversationService.GetSpokenSender(message)} dice. " +
                 $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. ");
 
             index++;

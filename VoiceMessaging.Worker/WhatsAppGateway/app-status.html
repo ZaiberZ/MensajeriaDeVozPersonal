@@ -49,7 +49,7 @@
     <section class="grid">
         <article class="card"><div class="label">Servicio Worker</div><div id="worker" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">WhatsApp</div><div id="whatsapp" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
-        <article id="airbnbCard" class="card" hidden><div class="label">Sesión Airbnb</div><div id="airbnbSession" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article id="gmailCard" class="card" hidden><div class="label">Gmail / Airbnb Email</div><div id="gmailSession" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Teléfono del usuario</div><div id="userPhone" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Mensajes por leer en Alexa</div><div id="alexa" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
     </section>
@@ -59,8 +59,9 @@
         <a href="/contacts">Contactos frecuentes</a>
         <a href="/whatsapp/status" target="_blank" rel="noopener">Estado de WhatsApp</a>
         <button id="airbnbToggleButton" type="button">Habilitar Airbnb</button>
-        <button id="airbnbMessagesButton" type="button" hidden>Abrir mensajes de Airbnb</button>
-        <a id="airbnbLoginLink" href="voicemessaging-airbnb://login" hidden>Iniciar sesión en Airbnb</a>
+        <a id="gmailLoginLink" href="/gmail/login" hidden>Conectar Gmail</a>
+        <button id="gmailTestButton" type="button" hidden>Probar lectura de correos Airbnb</button>
+        <button id="gmailSyncButton" type="button" hidden>Sincronizar mensajes Airbnb</button>
         <button id="viewAllLogsButton" type="button">Ver todos los logs</button>
         <button id="clearLogsButton" class="danger" type="button">Limpiar logs</button>
         <button id="logoutButton" class="danger" type="button" hidden>Cerrar sesión en WhatsApp</button>

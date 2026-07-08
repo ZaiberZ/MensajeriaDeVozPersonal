@@ -15,25 +15,31 @@ const setWhatsAppActions = connected => {
     document.getElementById("logoutButton").hidden = !connected;
 };
 
-const openAirbnbMessages = () => {
-    window.location.href = "voicemessaging-airbnb://messages";
-};
-
-const setAirbnbActions = status => {
+const setAirbnbActions = (status, gmailStatus) => {
     const enabled = status?.enabled === true;
-    document.getElementById("airbnbCard").hidden = !enabled;
-
     const toggleButton = document.getElementById("airbnbToggleButton");
-    const messagesButton = document.getElementById("airbnbMessagesButton");
-    toggleButton.hidden = !enabled;
-    messagesButton.hidden = !enabled || status.authenticated !== true;
-    document.getElementById("airbnbLoginLink").hidden = !enabled || status.authenticated === true;
+    const gmailCard = document.getElementById("gmailCard");
+    const gmailLoginLink = document.getElementById("gmailLoginLink");
+    const gmailTestButton = document.getElementById("gmailTestButton");
+    const gmailSyncButton = document.getElementById("gmailSyncButton");
+
+    toggleButton.hidden = false;
+    toggleButton.dataset.enabled = enabled ? "true" : "false";
+    toggleButton.textContent = enabled ? "Deshabilitar Airbnb" : "Habilitar Airbnb";
+    gmailCard.hidden = !enabled;
+    gmailLoginLink.hidden = !enabled || gmailStatus?.authenticated === true;
+    gmailTestButton.hidden = !enabled || gmailStatus?.authenticated !== true;
+    gmailSyncButton.hidden = !enabled || gmailStatus?.authenticated !== true;
 
     if (!enabled)
         return;
 
-    toggleButton.dataset.enabled = "true";
-    toggleButton.textContent = "Deshabilitar Airbnb";
+    if (gmailStatus?.authenticated === true)
+        setStatus("gmailSession", "ok", gmailStatus.email ? `Conectado: ${gmailStatus.email}` : "Conectado");
+    else if (gmailStatus?.configured === false)
+        setStatus("gmailSession", "warn", "Falta configurar OAuth");
+    else
+        setStatus("gmailSession", "warn", "Requiere conexión");
 };
 
 const formatLogDate = value => {
@@ -99,13 +105,7 @@ async function refreshStatus() {
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
         setWhatsAppActions(status.whatsappConnected);
-        setAirbnbActions(status.airbnb);
-        if (status.airbnb?.enabled === true) {
-            setStatus(
-                "airbnbSession",
-                status.airbnb.authenticated ? "ok" : "warn",
-                status.airbnb.authenticated ? "Autenticada" : "Requiere login");
-        }
+        setAirbnbActions(status.airbnb, status.gmail);
         setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
 
         if (!status.workerRunning)
@@ -180,15 +180,44 @@ document.getElementById("airbnbToggleButton").addEventListener("click", async ()
     }
 });
 
-document.getElementById("airbnbMessagesButton").addEventListener("click", async () => {
-    document.getElementById("detail").textContent = "Abriendo mensajes de Airbnb...";
-    openAirbnbMessages();
+document.getElementById("gmailTestButton").addEventListener("click", async () => {
+    const button = document.getElementById("gmailTestButton");
+    button.disabled = true;
+    document.getElementById("detail").textContent = "Consultando correos recientes de Airbnb en Gmail...";
+
+    try {
+        const response = await fetch("/gmail/airbnb/messages", { cache: "no-store" });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.message || "HTTP " + response.status);
+
+        document.getElementById("detail").textContent = `Gmail detectó ${body.length} correo(s) de Airbnb recientes.`;
+    } catch (error) {
+        document.getElementById("detail").textContent = "No fue posible leer correos Airbnb: " + error.message;
+    } finally {
+        button.disabled = false;
+    }
 });
 
-document.getElementById("airbnbLoginLink").addEventListener("click", async event => {
-    event.preventDefault();
-    document.getElementById("detail").textContent = "Abriendo Airbnb...";
-    window.location.href = "voicemessaging-airbnb://login";
+document.getElementById("gmailSyncButton").addEventListener("click", async () => {
+    const button = document.getElementById("gmailSyncButton");
+    button.disabled = true;
+    document.getElementById("detail").textContent = "Sincronizando mensajes Airbnb desde Gmail...";
+
+    try {
+        const response = await fetch("/gmail/airbnb/sync", { method: "POST" });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.message || "HTTP " + response.status);
+
+        document.getElementById("detail").textContent = `Sincronización completada. Nuevos: ${body.savedCount}. Detectados: ${body.detectedCount}.`;
+    } catch (error) {
+        document.getElementById("detail").textContent = "No fue posible sincronizar Airbnb desde Gmail: " + error.message;
+    } finally {
+        button.disabled = false;
+    }
 });
 
 document.getElementById("logoutButton").addEventListener("click", async () => {

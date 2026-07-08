@@ -42,7 +42,7 @@ public class ConversationService
 
         return
             $"Mensaje {index + 1} de {messages.Count}. " +
-            $"{message.Sender} dice. " +
+            $"{GetSpokenSender(message)} dice. " +
             $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
             "Puedes decir siguiente, responder, repetir o terminar.";
     }
@@ -58,7 +58,7 @@ public class ConversationService
 
         return
             $"Mensaje 1 de {messages.Count}. " +
-            $"{message.Sender} dice. " +
+            $"{GetSpokenSender(message)} dice. " +
             $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
             "Puedes decir siguiente, responder, repetir o terminar.";
     }
@@ -102,7 +102,7 @@ public class ConversationService
         var conversations = messages.GroupBy(m => m.ChatId)
             .Select(g => new
             {
-                Sender = g.First().Sender,
+                Sender = GetSpokenSender(g.First()),
                 Count = g.Count()
             }).ToList();
 
@@ -142,7 +142,7 @@ public class ConversationService
 
         var conversationMessages = messages.Skip(startIndex).TakeWhile(m => m.ChatId == firstMessage.ChatId).ToList();
 
-        var text = $"Tienes {conversationMessages.Count} mensajes de {firstMessage.Sender}. ";
+        var text = $"Tienes {conversationMessages.Count} mensajes de {GetSpokenSender(firstMessage)}. ";
 
         foreach (var message in conversationMessages)
         {
@@ -152,6 +152,20 @@ public class ConversationService
         text += "Puedes decir responder, siguiente, repetir o terminar.";
 
         return text;
+    }
+
+    public static string GetSpokenSender(MessageDto message)
+    {
+        if (IsAirbnbSource(message.Source))
+            return $"Airbnb de {message.Sender}";
+
+        return message.Sender;
+    }
+
+    private static bool IsAirbnbSource(string source)
+    {
+        return string.Equals(source, "Airbnb", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase);
     }
 }
 

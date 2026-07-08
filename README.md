@@ -56,6 +56,9 @@ Actualmente el MVP permite:
 * Recepción automática de mensajes desde WhatsApp.
 * Persistencia de la sesión de WhatsApp.
 * Comunicación entre Worker y WhatsApp mediante una API local.
+* Lectura MVP de notificaciones de Airbnb desde Gmail para registrarlas como mensajes pendientes.
+
+Nota importante: una vez autenticado y probado el flujo, el usuario final no debería tener contacto con el equipo para operar el sistema.
 
 ---
 

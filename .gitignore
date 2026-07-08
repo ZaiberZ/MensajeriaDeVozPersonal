@@ -368,6 +368,8 @@ FodyWeavers.xsd
 /VoiceMessaging.Worker/WhatsAppGateway/.wwebjs_cache
 /VoiceMessaging.Worker/WhatsAppGateway/data/auth/session-personal
 /VoiceMessaging.Worker/WhatsAppGateway/data/auth
+/VoiceMessaging.Worker/WhatsAppGateway/gmail-token.json
+/VoiceMessaging.Worker/WhatsAppGateway/gmail-airbnb-processed.json
 AGENTS.md
 installer-check/VoiceMessagingInstaller.exe
 REPORTE_CAMBIOS_AIRBNB.md
