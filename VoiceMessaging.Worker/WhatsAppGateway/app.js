@@ -14,7 +14,9 @@ const workerStatus = {
     hasPendingMessages: false
 };
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
+const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000;
 const firebaseBaseUrl = "https://voicemessaginghub-default-rtdb.firebaseio.com";
+let airbnbEmailNotificationRunning = false;
 
 app.use(express.static(__dirname));
 app.use(cors());
@@ -76,6 +78,10 @@ function cleanPhone(value) {
 
 function getCurrentUserPhone() {
     return cleanPhone(whatsapp.isConnected().User?.Phone);
+}
+
+function getSecondAribnbPhone() {
+    return cleanPhone(whatsapp.isConnected().User?.SecondAribnbPhone);
 }
 
 function requireCurrentUserPhone() {
@@ -143,6 +149,56 @@ async function getAirbnbStatus() {
         ...disabledAirbnbPuppeteerResponse(),
         enabled: await readAirbnbEnabled()
     };
+}
+
+function buildAirbnbNotificationMessage(messages) {
+    const lines = [
+        `Se detectaron ${messages.length} mensaje(s) nuevo(s) de Airbnb.`
+    ];
+
+    for (const message of messages) {
+        lines.push("");
+        lines.push(`Huesped: ${message.sender || "Sin nombre"}`);
+        lines.push(`Mensaje: ${String(message.text || "").trim().slice(0, 1000)}`);
+    }
+
+    return lines.join("\n").trim();
+}
+
+async function syncAirbnbEmailAndNotifySecondPhone() {
+    if (airbnbEmailNotificationRunning)
+        return;
+
+    airbnbEmailNotificationRunning = true;
+
+    try {
+        if (!await readAirbnbEnabled())
+            return;
+
+        const secondAribnbPhone = getSecondAribnbPhone();
+
+        if (!secondAribnbPhone)
+            return;
+
+        if (whatsapp.isConnected().connected !== true) {
+            console.warn("No se revisan mensajes Airbnb para SecondAribnbPhone porque WhatsApp no esta conectado.");
+            return;
+        }
+
+        const result = await gmail.syncAirbnbMessages();
+        const newMessages = Array.isArray(result.savedMessages) ? result.savedMessages : [];
+
+        if (newMessages.length === 0)
+            return;
+
+        await whatsapp.sendMessage(null, secondAribnbPhone, buildAirbnbNotificationMessage(newMessages));
+        console.log(`Notificacion de Airbnb enviada a SecondAribnbPhone con ${newMessages.length} mensaje(s).`);
+    } catch (error) {
+        console.error("Error revisando o notificando mensajes Airbnb por Gmail:");
+        console.error(error);
+    } finally {
+        airbnbEmailNotificationRunning = false;
+    }
 }
 
 function sanitizeContactId(contact) {
@@ -385,8 +441,11 @@ app.listen(PORT, () => {
     console.log(" WhatsApp Gateway");
     console.log("---------------------------------------");
     console.log(`Servidor iniciado en puerto ${PORT}`);
+    console.log("Revision horaria de Airbnb por Gmail configurada.");
     console.log("");
 });
+
+setInterval(syncAirbnbEmailAndNotifySecondPhone, airbnbEmailNotificationIntervalMs);
 
 app.post("/whatsapp/send", async (req, res) => {
     try {

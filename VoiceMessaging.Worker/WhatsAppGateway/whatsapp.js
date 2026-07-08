@@ -35,7 +35,7 @@ const initializationMaxAttempts = 5;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
-const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", IsRegistered: false };
+const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "SecondAribnbPhone": "", IsRegistered: false };
 
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "personal", dataPath: authPath }),
@@ -342,6 +342,7 @@ function saveUser(user) {
         FullName: user.fullName,
         Email: user.email,
         SupportPhone: user.supportPhone || "",
+        SecondAribnbPhone: user.secondAribnbPhone || "",
         gmail: existingUser.gmail
     };
 
@@ -352,6 +353,7 @@ function saveUser(user) {
     User.FullName = savedUser.FullName;
     User.Email = savedUser.Email;
     User.SupportPhone = savedUser.SupportPhone;
+    User.SecondAribnbPhone = savedUser.SecondAribnbPhone;
 }
 
 function loadUser() {
@@ -364,6 +366,7 @@ function loadUser() {
     User.FullName = savedUser.FullName || "";
     User.Email = savedUser.Email || "";
     User.SupportPhone = savedUser.SupportPhone || "";
+    User.SecondAribnbPhone = savedUser.SecondAribnbPhone || "";
 }
 
 function clearUser() {
@@ -371,6 +374,7 @@ function clearUser() {
     User.FullName = "";
     User.Email = "";
     User.SupportPhone = "";
+    User.SecondAribnbPhone = "";
 
     if (fs.existsSync(userFilePath))
         fs.unlinkSync(userFilePath);
