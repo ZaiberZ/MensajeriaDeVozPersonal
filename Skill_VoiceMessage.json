@@ -67,7 +67,7 @@
             }
           ],
           "samples": [
-            "{respuesta}"
+            "mi mensaje es {respuesta}"
           ]
         },
         {
@@ -81,7 +81,7 @@
           "samples": [
             "escribe a {ContactName}",
             "manda mensaje a {ContactName}",
-            "envÃ­a mensaje a {ContactName}",
+            "envia mensaje a {ContactName}",
             "quiero escribir a {ContactName}"
           ]
         },
