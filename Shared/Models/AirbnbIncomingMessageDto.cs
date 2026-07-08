@@ -1,3 +1,4 @@
+using AlexaSkillWhatsApp.Services;
 using System.Text.Json.Serialization;
 
 namespace Shared.Models;
@@ -14,5 +15,5 @@ public class AirbnbIncomingMessageDto
     public string Text { get; set; } = "";
 
     [JsonPropertyName("date")]
-    public DateTime Date { get; set; } = DateTime.UtcNow;
+    public DateTime Date { get; set; } = AppClock.Now;
 }

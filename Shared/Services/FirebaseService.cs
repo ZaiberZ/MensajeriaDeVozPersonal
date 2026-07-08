@@ -227,7 +227,7 @@ public class FirebaseService
             Sender = sender,
             Account = account,
             Text = text,
-            Date = DateTime.UtcNow,
+            Date = AppClock.Now,
             Source = currentSource
         };
 
@@ -317,7 +317,7 @@ public class FirebaseService
 
     public async Task SendCommandAsync(string command)
     {
-        var json = JsonSerializer.Serialize(new { command, created = DateTime.UtcNow });
+        var json = JsonSerializer.Serialize(new { command, created = AppClock.Now });
 
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 

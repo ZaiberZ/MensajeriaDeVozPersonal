@@ -211,7 +211,7 @@ public class Worker : BackgroundService
             throw new InvalidOperationException("No se puede registrar el inicio del Worker porque el usuario no tiene un teléfono válido.");
 
         using var httpClient = new HttpClient();
-        var response = await httpClient.PutAsJsonAsync($"{FirebaseSettings.User(userId)}/control/last_worker_started_at.json", DateTime.UtcNow, stoppingToken);
+        var response = await httpClient.PutAsJsonAsync($"{FirebaseSettings.User(userId)}/control/last_worker_started_at.json", AppClock.Now, stoppingToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -252,7 +252,7 @@ public class Worker : BackgroundService
     {
         try
         {
-            var cutoff = DateTime.UtcNow.AddDays(-2);
+            var cutoff = AppClock.Now.AddDays(-2);
             var deletedMessages = await firebase.DeleteReadMessagesOlderThanAsync(cutoff);
 
             _logger.LogInformation(
@@ -275,7 +275,7 @@ public class Worker : BackgroundService
 
             var lastReportedAt = await firebase.GetLastErrorLogsReportedAtAsync(stoppingToken);
 
-            if (lastReportedAt.HasValue && DateTime.UtcNow - lastReportedAt.Value.ToUniversalTime() < ErrorLogReportInterval)
+            if (lastReportedAt.HasValue && AppClock.Now - lastReportedAt.Value < ErrorLogReportInterval)
                 return;
 
             var logsResponse = await whatsApp.GetUnreportedErrorLogsAsync(ErrorLogReportLimit, stoppingToken);
@@ -289,7 +289,7 @@ public class Worker : BackgroundService
                 return;
 
             await whatsApp.SendMessageAsync(_user.SupportPhone, BuildErrorLogsReport(logsResponse), stoppingToken);
-            await firebase.SetLastErrorLogsReportedAtAsync(DateTime.UtcNow, stoppingToken);
+            await firebase.SetLastErrorLogsReportedAtAsync(AppClock.Now, stoppingToken);
             await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
 
             _logger.LogInformation("Reporte diario de errores enviado al telefono de soporte. Logs reportados: {count}.", logIds.Count);

@@ -31,7 +31,7 @@ public class AlexaUserPhoneService
         var record = new AlexaUserPhone
         {
             Phone = DigitsOnly(phone),
-            UpdatedAt = DateTime.UtcNow
+            UpdatedAt = AppClock.Now
         };
 
         var path = FirebaseSettings.AlexaUser(CreateKey(alexaUserId));

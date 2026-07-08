@@ -1,7 +1,9 @@
 using VoiceMessaging.Worker;
+using AlexaSkillWhatsApp.Services;
 
 
 var builder = Host.CreateApplicationBuilder(args);
+AppClock.Configure(builder.Configuration["TimeZone:Id"]);
 
 builder.Services.AddWindowsService(options => { options.ServiceName = "Voice Messaging Worker"; });
 builder.Services.AddHostedService<Worker>();

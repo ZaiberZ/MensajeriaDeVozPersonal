@@ -25,5 +25,5 @@ public class WhatsAppIncomingMessageDto
     public string Account { get; set; } = "Personal";
 
     [JsonPropertyName("date")]
-    public DateTime Date { get; set; } = DateTime.UtcNow;
+    public DateTime Date { get; set; } = AlexaSkillWhatsApp.Services.AppClock.Now;
 }

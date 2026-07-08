@@ -61,7 +61,7 @@ public class PendingReplyProcessor
                     }
 
                     if (sent)
-                        await _firebase.RegisterLastSentMessageAsync(reply, DateTime.UtcNow, stoppingToken);
+                        await _firebase.RegisterLastSentMessageAsync(reply, AppClock.Now, stoppingToken);
 
                     await _firebase.DeleteReplyAsync(reply.Id);
                     _logger.LogInformation("Respuesta procesada y eliminada de Firebase: {sender} - {text}", reply.Sender, reply.Text);
