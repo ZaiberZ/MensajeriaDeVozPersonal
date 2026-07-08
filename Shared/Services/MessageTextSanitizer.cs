@@ -12,7 +12,7 @@ public static class MessageTextSanitizer
         if (string.IsNullOrWhiteSpace(text))
             return "";
 
-        var sanitizedText = UrlPattern.Replace(text, "Te envio un enlace");
+        var sanitizedText = UrlPattern.Replace(text, "Enlace");
         return RepeatedSpacesPattern.Replace(sanitizedText, " ").Trim();
     }
 }

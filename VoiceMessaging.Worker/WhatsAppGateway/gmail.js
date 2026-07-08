@@ -197,17 +197,27 @@ function cleanExtractedText(value) {
 }
 
 function compactDuplicateName(value) {
-    const name = cleanExtractedText(value);
+    const name = cleanAirbnbSenderName(value);
     const words = name.split(" ");
     const half = words.length / 2;
 
     if (words.length > 1 &&
         Number.isInteger(half) &&
         words.slice(0, half).join(" ").toLowerCase() === words.slice(half).join(" ").toLowerCase()) {
-        return words.slice(0, half).join(" ");
+        return words.slice(half).join(" ");
     }
 
     return name;
+}
+
+function cleanAirbnbSenderName(value) {
+    return cleanExtractedText(value)
+        .replace(/\[[^\]]*https?:\/\/[^\]]*\]/gi, " ")
+        .replace(/https?:\/\/\S+/gi, " ")
+        .replace(/www\.\S+/gi, " ")
+        .replace(/\b(?:Ver perfil|Perfil|Airbnb)\b/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function escapeRegex(value) {

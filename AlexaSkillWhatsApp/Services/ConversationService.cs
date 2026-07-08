@@ -42,9 +42,9 @@ public class ConversationService
 
         return
             $"Mensaje {index + 1} de {messages.Count}. " +
-            $"{GetSpokenSender(message)} dice. " +
+            $"{GetMessageIntro(message)}. " +
             $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
-            "Puedes decir siguiente, responder, repetir o terminar.";
+            GetNavigationPrompt(message);
     }
 
     public async Task<string> ReadFirstMessageAsync()
@@ -58,9 +58,9 @@ public class ConversationService
 
         return
             $"Mensaje 1 de {messages.Count}. " +
-            $"{GetSpokenSender(message)} dice. " +
+            $"{GetMessageIntro(message)}. " +
             $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
-            "Puedes decir siguiente, responder, repetir o terminar.";
+            GetNavigationPrompt(message);
     }
     public async Task<List<MessageDto>> GetLastMessagesAsync(int count)
     {
@@ -142,16 +142,26 @@ public class ConversationService
 
         var conversationMessages = messages.Skip(startIndex).TakeWhile(m => m.ChatId == firstMessage.ChatId).ToList();
 
-        var text = $"Tienes {conversationMessages.Count} mensajes de {GetSpokenSender(firstMessage)}. ";
+        var text = IsAirbnbSource(firstMessage.Source)
+            ? $"Tienes {conversationMessages.Count} mensajes. De Airbnb, {firstMessage.Sender} dice. "
+            : $"Tienes {conversationMessages.Count} mensajes de {GetSpokenSender(firstMessage)}. ";
 
         foreach (var message in conversationMessages)
         {
             text += $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. ";
         }
 
-        text += "Puedes decir responder, siguiente, repetir o terminar.";
+        text += GetNavigationPrompt(firstMessage);
 
         return text;
+    }
+
+    public static string GetMessageIntro(MessageDto message)
+    {
+        if (IsAirbnbSource(message.Source))
+            return $"De Airbnb, {message.Sender} dice";
+
+        return $"{message.Sender} dice";
     }
 
     public static string GetSpokenSender(MessageDto message)
@@ -166,6 +176,13 @@ public class ConversationService
     {
         return string.Equals(source, "Airbnb", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetNavigationPrompt(MessageDto message)
+    {
+        return IsAirbnbSource(message.Source)
+            ? "Puedes decir siguiente, repetir o terminar."
+            : "Puedes decir siguiente, responder, repetir o terminar.";
     }
 }
 

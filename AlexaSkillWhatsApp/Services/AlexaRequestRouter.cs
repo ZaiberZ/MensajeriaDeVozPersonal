@@ -495,7 +495,7 @@ public class AlexaRequestRouter
         {
             sb.Append(
                 $"Mensaje {index}. " +
-                $"{ConversationService.GetSpokenSender(message)} dice. " +
+                $"{ConversationService.GetMessageIntro(message)}. " +
                 $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. ");
 
             index++;
