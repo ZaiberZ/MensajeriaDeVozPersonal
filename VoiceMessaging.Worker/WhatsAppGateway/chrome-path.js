@@ -46,18 +46,23 @@ function getChromePath() {
         if (!fs.existsSync(configuredPath))
             throw new Error(`CHROME_EXECUTABLE_PATH no existe: ${configuredPath}`);
 
+        console.log(`Chrome seleccionado (CHROME_EXECUTABLE_PATH): ${configuredPath}`);
         return configuredPath;
     }
 
     const bundledChrome = getBundledChromeCandidate();
 
-    if (bundledChrome.chromePath)
+    if (bundledChrome.chromePath) {
+        console.log(`Chrome seleccionado (empaquetado): ${bundledChrome.chromePath}`);
         return bundledChrome.chromePath;
+    }
 
     const installedChromePath = getInstalledChromePath();
 
-    if (installedChromePath)
+    if (installedChromePath) {
+        console.log(`Chrome seleccionado (instalado): ${installedChromePath}`);
         return installedChromePath;
+    }
 
     for (const missingFile of bundledChrome.missingFiles)
         console.warn(`La instalacion empaquetada de Chrome esta incompleta; falta: ${missingFile}`);

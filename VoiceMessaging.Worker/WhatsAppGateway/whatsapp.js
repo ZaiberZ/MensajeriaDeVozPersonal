@@ -46,7 +46,10 @@ const client = new Client({
         args: [
             "--no-sandbox",
             "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage"
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--no-first-run",
+            "--disable-crash-reporter"
         ]
     }
 });

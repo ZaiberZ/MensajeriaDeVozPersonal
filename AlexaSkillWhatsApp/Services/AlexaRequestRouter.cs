@@ -381,7 +381,7 @@ public class AlexaRequestRouter
             sb.Append(
                 $"Mensaje {index}. " +
                 $"{message.Sender} dice. " +
-                $"{message.Text}. ");
+                $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. ");
 
             index++;
         }

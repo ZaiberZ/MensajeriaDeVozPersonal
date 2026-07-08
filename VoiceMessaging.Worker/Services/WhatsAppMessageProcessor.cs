@@ -178,7 +178,7 @@ public class WhatsAppMessageProcessor
             Source = message.Source,
             Account = message.Account,
             Sender = message.Sender,
-            Text = message.Text,
+            Text = MessageTextSanitizer.ReplaceLinksForSpeech(message.Text),
             Date = message.Date,
             IsRead = false
         };

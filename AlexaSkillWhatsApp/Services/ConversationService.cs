@@ -43,7 +43,7 @@ public class ConversationService
         return
             $"Mensaje {index + 1} de {messages.Count}. " +
             $"{message.Sender} dice. " +
-            $"{message.Text}. " +
+            $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
             "Puedes decir siguiente, responder, repetir o terminar.";
     }
 
@@ -59,7 +59,7 @@ public class ConversationService
         return
             $"Mensaje 1 de {messages.Count}. " +
             $"{message.Sender} dice. " +
-            $"{message.Text}. " +
+            $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
             "Puedes decir siguiente, responder, repetir o terminar.";
     }
     public async Task<List<MessageDto>> GetLastMessagesAsync(int count)
@@ -142,7 +142,7 @@ public class ConversationService
 
         foreach (var message in conversationMessages)
         {
-            text += $"{message.Text}. ";
+            text += $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. ";
         }
 
         text += "Puedes decir responder, siguiente, repetir o terminar.";

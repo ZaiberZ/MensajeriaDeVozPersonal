@@ -20,6 +20,7 @@ PrivilegesRequired=admin
 [Files]
 Source: "{#InstallerSource}"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 Source: "AlexaWhatsApp.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Install Gateway Dependencies.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{commonappdata}\VoiceMessaging"; Permissions: users-modify
@@ -29,7 +30,7 @@ Name: "{commonappdata}\VoiceMessaging\whatsapp-auth"; Permissions: users-modify
 [Icons]
 ;Name: "{commondesktop}\Voice Messaging QR"; Filename: "http://localhost:3000/status"; IconFilename: "{app}\AlexaWhatsApp.ico"
 Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/app-status"; IconFilename: "{app}\AlexaWhatsApp.ico"
-Name: "{commondesktop}\Abrir Airbnb"; Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"""; WorkingDir: "{app}"; IconFilename: "{app}\AlexaWhatsApp.ico"
+;Name: "{commondesktop}\Abrir Airbnb"; Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"""; WorkingDir: "{app}"; IconFilename: "{app}\AlexaWhatsApp.ico"
 ; Pausado por ahora: no abrir Airbnb automaticamente al iniciar Windows.
 ;Name: "{commonstartup}\Voice Messaging Airbnb"; Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"" voicemessaging-airbnb://startup"; WorkingDir: "{app}"; IconFilename: "{app}\AlexaWhatsApp.ico"
 
@@ -39,9 +40,7 @@ Root: HKCR; Subkey: "voicemessaging-airbnb"; ValueName: "URL Protocol"; ValueTyp
 Root: HKCR; Subkey: "voicemessaging-airbnb\shell\open\command"; ValueType: string; ValueData: """{cmd}"" /C """"{app}\open-airbnb-login.cmd"" ""%1"""""
 
 [Run]
-Filename: "cmd.exe"; Parameters: "/C npm install"; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias de Node.js..."; Flags: waituntilterminated
-Filename: "cmd.exe"; Parameters: "/C if exist ""{app}\WhatsAppGateway\.cache\chrome"" rmdir /S /Q ""{app}\WhatsAppGateway\.cache\chrome"""; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Limpiando caché incompleta de Chrome..."; Flags: waituntilterminated
-Filename: "cmd.exe"; Parameters: "/C ""set PUPPETEER_CACHE_DIR={app}\WhatsAppGateway\.cache&& npx puppeteer browsers install chrome > chrome-install.log 2>&1"""; WorkingDir: "{app}\WhatsAppGateway"; Flags: waituntilterminated
+Filename: "{cmd}"; Parameters: "/C """"{app}\Install Gateway Dependencies.bat"" ""{app}\WhatsAppGateway"""""; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias del Gateway..."; Flags: waituntilterminated
 ;Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\VoiceMessaging"" /grant *S-1-5-32-545:(OI)(CI)M /C"; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
