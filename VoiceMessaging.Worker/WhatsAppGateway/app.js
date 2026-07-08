@@ -14,6 +14,7 @@ const workerStatus = {
     hasPendingMessages: false
 };
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
+const firebaseBaseUrl = "https://voicemessaginghub-default-rtdb.firebaseio.com";
 
 app.use(express.static(__dirname));
 app.use(cors());
@@ -61,6 +62,138 @@ app.get("/app-status-data", async (req, res) => {
 
 app.get("/app-status", (req, res) => {
     res.sendFile(path.join(__dirname, "app-status.html"));
+});
+
+function cleanPhone(value) {
+    return String(value || "").replace(/\D/g, "");
+}
+
+function getCurrentUserPhone() {
+    return cleanPhone(whatsapp.isConnected().User?.Phone);
+}
+
+function requireCurrentUserPhone() {
+    const phone = getCurrentUserPhone();
+
+    if (!phone)
+        throw new Error("Primero registra el teléfono del usuario en el Gateway.");
+
+    return phone;
+}
+
+function frequentContactsPath(phone) {
+    return `${firebaseBaseUrl}/usuarios/${phone}/contactos_frecuentes`;
+}
+
+function sanitizeContactId(contact) {
+    const phone = cleanPhone(contact.phone);
+
+    if (phone)
+        return phone;
+
+    return String(contact.chatId || "")
+        .replace(/[^a-zA-Z0-9_-]/g, "_")
+        .replace(/^_+|_+$/g, "");
+}
+
+function normalizeFrequentContact(id, contact) {
+    return {
+        id,
+        name: String(contact.name || "").trim(),
+        phone: cleanPhone(contact.phone),
+        chatId: String(contact.chatId || "").trim(),
+        source: String(contact.source || "WhatsApp").trim() || "WhatsApp",
+        createdAt: contact.createdAt || new Date().toISOString()
+    };
+}
+
+app.get("/contacts", (req, res) => {
+    res.sendFile(path.join(__dirname, "contacts.html"));
+});
+
+app.get("/contacts/whatsapp", async (req, res) => {
+    try {
+        res.json(await whatsapp.getContacts());
+    } catch (error) {
+        if (error.message === "WhatsApp no está conectado.")
+            return res.status(503).json({ success: false, error: error.message });
+
+        console.error("Error al consultar contactos de WhatsApp:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get("/contacts/frequent", async (req, res) => {
+    try {
+        const phone = requireCurrentUserPhone();
+        const response = await fetch(`${frequentContactsPath(phone)}.json`);
+
+        if (!response.ok)
+            throw new Error(`Firebase respondió ${response.status}.`);
+
+        const contacts = await response.json();
+        const list = contacts
+            ? Object.entries(contacts).map(([id, contact]) => normalizeFrequentContact(id, contact))
+            : [];
+
+        res.json(list.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" })));
+    } catch (error) {
+        console.error("Error al consultar contactos frecuentes:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post("/contacts/frequent", async (req, res) => {
+    try {
+        const phone = requireCurrentUserPhone();
+        const id = sanitizeContactId(req.body);
+
+        if (!id)
+            return res.status(400).json({ success: false, error: "El contacto necesita teléfono o chatId." });
+
+        const contact = normalizeFrequentContact(id, req.body ?? {});
+
+        if (!contact.name || !contact.chatId)
+            return res.status(400).json({ success: false, error: "El contacto necesita nombre y chatId." });
+
+        const response = await fetch(`${frequentContactsPath(phone)}/${id}.json`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(contact)
+        });
+
+        if (!response.ok)
+            throw new Error(`Firebase respondió ${response.status}.`);
+
+        res.status(201).json({ success: true, contact });
+    } catch (error) {
+        console.error("Error al guardar contacto frecuente:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete("/contacts/frequent/:id", async (req, res) => {
+    try {
+        const phone = requireCurrentUserPhone();
+        const id = String(req.params.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
+
+        if (!id)
+            return res.status(400).json({ success: false, error: "El id del contacto es obligatorio." });
+
+        const response = await fetch(`${frequentContactsPath(phone)}/${id}.json`, { method: "DELETE" });
+
+        if (!response.ok)
+            throw new Error(`Firebase respondió ${response.status}.`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Error al eliminar contacto frecuente:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.get("/airbnb/status", async (req, res) => {

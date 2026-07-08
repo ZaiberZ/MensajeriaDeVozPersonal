@@ -33,6 +33,7 @@ public class FirebaseService
     private string UserPath => FirebaseSettings.User(_userId);
     private string PendingMessagesPath => FirebaseSettings.PendingMessagesFor(_userId);
     private string OutgoingMessagesPath => FirebaseSettings.OutgoingMessagesFor(_userId);
+    private string FrequentContactsPath => FirebaseSettings.FrequentContactsFor(_userId);
     private string CommandsPath => FirebaseSettings.CommandsFor(_userId);
     private string StatusPath => FirebaseSettings.StatusFor(_userId);
     private string ControlPath => $"{UserPath}/control";
@@ -215,6 +216,51 @@ public class FirebaseService
 
         response.EnsureSuccessStatusCode();
         await SetHasPendingRepliesAsync(true);
+    }
+
+    public async Task<List<ContactDto>> GetFrequentContactsAsync(string phone)
+    {
+        var userId = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        var path = string.IsNullOrWhiteSpace(userId)
+            ? FrequentContactsPath
+            : FirebaseSettings.FrequentContactsFor(userId);
+        var json = await _httpClient.GetStringAsync($"{path}.json");
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return [];
+
+        var dictionary = JsonSerializer.Deserialize<Dictionary<string, ContactDto>>(json, _jsonOptions);
+
+        if (dictionary == null || dictionary.Count == 0)
+            return [];
+
+        return dictionary
+            .Where(item => item.Value != null)
+            .Select(item =>
+            {
+                item.Value.Id = item.Key;
+                return item.Value;
+            })
+            .OrderBy(contact => contact.Name)
+            .ToList();
+    }
+
+    public async Task<ContactDto?> FindFrequentContactByNameAsync(string phone, string contactName)
+    {
+        if (string.IsNullOrWhiteSpace(contactName))
+            return null;
+
+        var contacts = await GetFrequentContactsAsync(phone);
+        var normalizedName = contactName.Trim();
+        var exact = contacts.FirstOrDefault(contact =>
+            string.Equals(contact.Name?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase));
+
+        if (exact != null)
+            return exact;
+
+        return contacts.FirstOrDefault(contact =>
+            !string.IsNullOrWhiteSpace(contact.Name) &&
+            contact.Name.Contains(normalizedName, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task DeletePendingMessageAsync(string messageId)

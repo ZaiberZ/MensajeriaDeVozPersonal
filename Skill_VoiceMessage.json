@@ -59,6 +59,33 @@
           ]
         },
         {
+          "name": "DictadoRespuestaIntent",
+          "slots": [
+            {
+              "name": "respuesta",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "{respuesta}"
+          ]
+        },
+        {
+          "name": "WriteContactMessageIntent",
+          "slots": [
+            {
+              "name": "ContactName",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "escribe a {ContactName}",
+            "manda mensaje a {ContactName}",
+            "envÃ­a mensaje a {ContactName}",
+            "quiero escribir a {ContactName}"
+          ]
+        },
+        {
           "name": "SiguienteMensajeIntent",
           "slots": [],
           "samples": [
@@ -153,6 +180,40 @@
               }
             }
           ]
+        },
+        {
+          "name": "DictadoRespuestaIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "respuesta",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.Respuesta"
+              }
+            }
+          ]
+        },
+        {
+          "name": "WriteContactMessageIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "ContactName",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.ContactName"
+              }
+            }
+          ]
         }
       ]
     },
@@ -163,6 +224,15 @@
           {
             "type": "PlainText",
             "value": "¿Qué deseas responder?"
+          }
+        ]
+      },
+      {
+        "id": "Elicit.Slot.ContactName",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "Â¿A quÃ© contacto quieres escribirle?"
           }
         ]
       }

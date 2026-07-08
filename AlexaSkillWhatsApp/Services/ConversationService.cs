@@ -72,6 +72,10 @@ public class ConversationService
     {
         await _firebase.SaveReplyAsync(messageId, chatId, phone, sender, account, currentSource, text);
     }
+    public Task<ContactDto?> FindFrequentContactByNameAsync(string phone, string contactName)
+    {
+        return _firebase.FindFrequentContactByNameAsync(phone, contactName);
+    }
     public async Task MarkAsReadAsync(string messageId)
     {
 

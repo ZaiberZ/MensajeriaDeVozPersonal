@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Contactos frecuentes</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Arial, sans-serif;
+            background: #f5f7fb;
+            color: #162033;
+        }
+
+        body {
+            margin: 0;
+        }
+
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid #d9e1ef;
+            padding: 18px 24px;
+        }
+
+        main {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+            padding: 24px;
+        }
+
+        section {
+            background: #ffffff;
+            border: 1px solid #d9e1ef;
+            border-radius: 8px;
+            padding: 18px;
+        }
+
+        h1, h2 {
+            margin: 0;
+        }
+
+        h1 {
+            font-size: 24px;
+        }
+
+        h2 {
+            font-size: 18px;
+            margin-bottom: 14px;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        input {
+            border: 1px solid #c8d3e4;
+            border-radius: 6px;
+            flex: 1;
+            font-size: 15px;
+            min-width: 220px;
+            padding: 10px;
+        }
+
+        button, a.button {
+            align-items: center;
+            background: #165dff;
+            border: 0;
+            border-radius: 6px;
+            color: #ffffff;
+            cursor: pointer;
+            display: inline-flex;
+            font-size: 14px;
+            justify-content: center;
+            padding: 10px 14px;
+            text-decoration: none;
+        }
+
+        button.secondary, a.button.secondary {
+            background: #edf2fb;
+            color: #162033;
+        }
+
+        button.danger {
+            background: #d92d20;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: .55;
+        }
+
+        .list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .item {
+            align-items: center;
+            border: 1px solid #e2e8f3;
+            border-radius: 8px;
+            display: grid;
+            gap: 8px;
+            grid-template-columns: 1fr auto;
+            padding: 12px;
+        }
+
+        .item.selected {
+            border-color: #165dff;
+            box-shadow: 0 0 0 2px rgba(22, 93, 255, .12);
+        }
+
+        .name {
+            font-weight: 700;
+        }
+
+        .phone {
+            color: #506078;
+            font-size: 14px;
+            margin-top: 3px;
+            word-break: break-word;
+        }
+
+        .message {
+            color: #506078;
+            margin-top: 10px;
+            min-height: 20px;
+        }
+
+        @media (max-width: 800px) {
+            main {
+                grid-template-columns: 1fr;
+                padding: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Contactos frecuentes</h1>
+        <p><a href="/app-status">Volver al estado del Gateway</a></p>
+    </header>
+
+    <main>
+        <section>
+            <h2>Contactos de WhatsApp</h2>
+            <div class="toolbar">
+                <input id="search" type="search" placeholder="Buscar por nombre o telefono">
+                <button id="loadContacts">Cargar contactos</button>
+                <button id="addFrequent" class="secondary" disabled>Agregar a frecuentes</button>
+            </div>
+            <div id="whatsappContacts" class="list"></div>
+            <div id="whatsappMessage" class="message"></div>
+        </section>
+
+        <section>
+            <h2>Frecuentes guardados</h2>
+            <button id="refreshFrequent" class="secondary">Actualizar</button>
+            <div id="frequentContacts" class="list" style="margin-top:14px"></div>
+            <div id="frequentMessage" class="message"></div>
+        </section>
+    </main>
+
+    <script src="/contacts.js"></script>
+</body>
+</html>

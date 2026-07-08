@@ -313,6 +313,23 @@ async function getPendingMessages() {
 
 }
 
+async function getContacts() {
+    if (!connected)
+        throw new Error("WhatsApp no está conectado.");
+
+    const contacts = await client.getContacts();
+
+    return contacts
+        .filter(contact => contact.isMyContact && contact.id && contact.id.user)
+        .map(contact => ({
+            name: contact.name || contact.pushname || contact.number || contact.id.user,
+            phone: contact.id.user,
+            chatId: contact.id._serialized,
+            source: "WhatsApp"
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+}
+
 function saveUser(user) {
     const savedUser = {
         Phone: user.phone,
@@ -405,6 +422,7 @@ module.exports = {
     sendMessage,
     getPendingMessages,
     getUnreadMessages,
+    getContacts,
     markChatAsRead,
     logout,
     getQr,

@@ -24,6 +24,12 @@ public class ConversationState
     public string CurrentPhone { get; set; } = "";
     public string PendingUserPhone { get; set; } = "";
     public bool WaitingForPhoneConfirmation { get; set; }
+    public bool WaitingForContactMessage { get; set; }
+    public string SelectedContactName { get; set; } = "";
+    public string SelectedContactChatId { get; set; } = "";
+    public string SelectedContactSource { get; set; } = "";
+    public string SelectedContactPhone { get; set; } = "";
+    public string PendingText { get; set; } = "";
 
     public static ConversationState FromSession(Dictionary<string, JsonElement>? attributes)
     {
@@ -71,6 +77,24 @@ public class ConversationState
         if (attributes.TryGetValue(nameof(WaitingForPhoneConfirmation), out var waitingForPhoneConfirmation))
             state.WaitingForPhoneConfirmation = waitingForPhoneConfirmation.GetBoolean();
 
+        if (attributes.TryGetValue(nameof(WaitingForContactMessage), out var waitingForContactMessage))
+            state.WaitingForContactMessage = waitingForContactMessage.GetBoolean();
+
+        if (attributes.TryGetValue(nameof(SelectedContactName), out var selectedContactName))
+            state.SelectedContactName = selectedContactName.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(SelectedContactChatId), out var selectedContactChatId))
+            state.SelectedContactChatId = selectedContactChatId.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(SelectedContactSource), out var selectedContactSource))
+            state.SelectedContactSource = selectedContactSource.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(SelectedContactPhone), out var selectedContactPhone))
+            state.SelectedContactPhone = selectedContactPhone.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(PendingText), out var pendingText))
+            state.PendingText = pendingText.GetString() ?? "";
+
         return state;
     }
 
@@ -91,6 +115,12 @@ public class ConversationState
             { nameof(CurrentPhone), CurrentPhone },
             { nameof(PendingUserPhone), PendingUserPhone },
             { nameof(WaitingForPhoneConfirmation), WaitingForPhoneConfirmation },
+            { nameof(WaitingForContactMessage), WaitingForContactMessage },
+            { nameof(SelectedContactName), SelectedContactName },
+            { nameof(SelectedContactChatId), SelectedContactChatId },
+            { nameof(SelectedContactSource), SelectedContactSource },
+            { nameof(SelectedContactPhone), SelectedContactPhone },
+            { nameof(PendingText), PendingText },
         };
     }
 }
