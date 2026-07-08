@@ -2,6 +2,7 @@
 using AlexaSkillWhatsApp.Models;
 using Amazon.Lambda.Core;
 using Shared.Models;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -48,6 +49,9 @@ public class AlexaRequestRouter
     {
         var intentName = request.Request.Intent?.Name;
         var state = ConversationState.FromSession(request.Session?.Attributes);
+
+        if (state.WaitingForContactConfirmation && intentName is not "ConfirmarIntent" and not "CancelarRespuestaIntent" and not "AMAZON.StopIntent" and not "AMAZON.CancelIntent")
+            return AlexaResponseFactory.Speak($"Di sí si {state.SelectedContactName} es el contacto al que quieres escribir, o no para cancelarlo.", state);
 
         if (state.WaitingForContactMessage && intentName is not "ResponderMensajeIntent" and not "DictadoRespuestaIntent" and not "CancelarRespuestaIntent" and not "AMAZON.StopIntent" and not "AMAZON.CancelIntent")
             return AlexaResponseFactory.ElicitSlot("No pude entender el mensaje. Dímelo nuevamente.", "DictadoRespuestaIntent", "respuesta", state);
@@ -162,21 +166,93 @@ public class AlexaRequestRouter
         if (!TryGetSlotValue(request, "ContactName", out var contactName))
             return AlexaResponseFactory.ElicitSlot("¿A qué contacto quieres escribirle?", "WriteContactMessageIntent", "ContactName", new ConversationState());
 
-        var contact = await _conversation.FindFrequentContactByNameAsync(_user.Phone, contactName);
+        var contacts = await _conversation.GetFrequentContactsAsync(_user.Phone);
+        var contact = FindExactContact(contacts, contactName);
+
+        if (contact != null)
+            return AskForContactMessage(contact);
+
+        contact = FindPartialContact(contacts, contactName);
 
         if (contact == null)
             return AlexaResponseFactory.Speak("No encontré ese contacto registrado. Primero agrégalo desde la interfaz del gateway.");
 
-        var state = new ConversationState
+        var state = CreateSelectedContactState(contact);
+        state.WaitingForContactConfirmation = true;
+
+        return AlexaResponseFactory.Speak($"Encontré a {contact.Name}. ¿Es el contacto al que quieres escribir?", state);
+    }
+
+    private static string AskForContactMessage(ContactDto contact)
+    {
+        var state = CreateSelectedContactState(contact);
+        state.WaitingForContactMessage = true;
+
+        return AlexaResponseFactory.ElicitSlot($"¿Qué mensaje quieres enviarle a {contact.Name}?", "DictadoRespuestaIntent", "respuesta", state);
+    }
+
+    private static ConversationState CreateSelectedContactState(ContactDto contact)
+    {
+        return new ConversationState
         {
-            WaitingForContactMessage = true,
             SelectedContactName = contact.Name,
             SelectedContactChatId = contact.ChatId,
             SelectedContactPhone = contact.Phone,
             SelectedContactSource = string.IsNullOrWhiteSpace(contact.Source) ? "WhatsApp" : contact.Source
         };
+    }
 
-        return AlexaResponseFactory.ElicitSlot($"¿Qué mensaje quieres enviarle a {contact.Name}?", "DictadoRespuestaIntent", "respuesta", state);
+    private static ContactDto? FindExactContact(List<ContactDto> contacts, string contactName)
+    {
+        var normalizedName = NormalizeContactName(contactName);
+
+        return contacts.FirstOrDefault(contact => NormalizeContactName(contact.Name) == normalizedName);
+    }
+
+    private static ContactDto? FindPartialContact(List<ContactDto> contacts, string contactName)
+    {
+        var normalizedName = NormalizeContactName(contactName);
+
+        if (string.IsNullOrWhiteSpace(normalizedName))
+            return null;
+
+        return contacts.FirstOrDefault(contact =>
+        {
+            var normalizedContactName = NormalizeContactName(contact.Name);
+            return normalizedContactName.Contains(normalizedName) ||
+                normalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(word => normalizedContactName.Contains(word));
+        });
+    }
+
+    private static string NormalizeContactName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        var normalized = value.ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+
+        foreach (var character in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark)
+                builder.Append(character);
+        }
+
+        return builder.ToString().Normalize(NormalizationForm.FormC).Trim();
+    }
+
+    private static string ConfirmContactCandidate(ConversationState state)
+    {
+        state.WaitingForContactConfirmation = false;
+        state.WaitingForContactMessage = true;
+
+        return AlexaResponseFactory.ElicitSlot($"¿Qué mensaje quieres enviarle a {state.SelectedContactName}?", "DictadoRespuestaIntent", "respuesta", state);
+    }
+
+    private static string CancelContactCandidate(ConversationState state)
+    {
+        ClearContactMessageState(state);
+        return AlexaResponseFactory.Speak("De acuerdo. Se canceló el mensaje.", state);
     }
 
     private static string RepeatMessage(AlexaRequest request)
@@ -266,6 +342,9 @@ public class AlexaRequestRouter
     {
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
+        if (state.WaitingForContactConfirmation)
+            return CancelContactCandidate(state);
+
         state.WaitingForReply = false;
         state.WaitingForReplyConfirmation = false;
         state.ReplyText = "";
@@ -279,6 +358,9 @@ public class AlexaRequestRouter
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
         context.Logger.LogLine("state: " + JsonSerializer.Serialize(state));
+
+        if (state.WaitingForContactConfirmation)
+            return ConfirmContactCandidate(state);
 
         if (HasPendingContactMessage(state))
             return await ConfirmContactMessage(state);
@@ -352,6 +434,7 @@ public class AlexaRequestRouter
         state.SelectedContactSource = "";
         state.SelectedContactPhone = "";
         state.PendingText = "";
+        state.WaitingForContactConfirmation = false;
     }
 
     private async Task<string> ReadLastMessages(AlexaRequest request)

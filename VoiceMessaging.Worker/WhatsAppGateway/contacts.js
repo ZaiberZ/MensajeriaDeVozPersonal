@@ -35,8 +35,69 @@ function contactMatchesSearch(contact) {
     return `${contact.name} ${contact.phone}`.toLowerCase().includes(value);
 }
 
+function getFilteredWhatsAppContacts() {
+    return state.whatsappContacts.filter(contactMatchesSearch);
+}
+
+function selectContact(contact, shouldRender = true) {
+    state.selectedContact = contact;
+    addFrequent.disabled = false;
+
+    if (shouldRender) {
+        renderWhatsAppContacts();
+        return;
+    }
+
+    updateSelectedContactStyles();
+}
+
+function updateSelectedContactStyles() {
+    for (const item of whatsappContacts.querySelectorAll(".item[data-chat-id]"))
+        item.classList.toggle("selected", item.dataset.chatId === state.selectedContact?.chatId);
+}
+
+function getFocusedContactItem() {
+    const activeElement = document.activeElement;
+
+    if (!activeElement?.classList?.contains("item") || activeElement.parentElement !== whatsappContacts)
+        return null;
+
+    return activeElement;
+}
+
+function focusContactByIndex(index) {
+    const items = [...whatsappContacts.querySelectorAll(".item[data-chat-id]")];
+
+    if (items.length === 0)
+        return;
+
+    const nextIndex = Math.min(Math.max(index, 0), items.length - 1);
+    items[nextIndex].focus();
+}
+
+function focusRelativeContact(offset) {
+    const items = [...whatsappContacts.querySelectorAll(".item[data-chat-id]")];
+
+    if (items.length === 0)
+        return;
+
+    const focusedItem = getFocusedContactItem();
+    const currentIndex = focusedItem ? items.indexOf(focusedItem) : items.findIndex(item => item.dataset.chatId === state.selectedContact?.chatId);
+    const nextIndex = currentIndex < 0 ? 0 : currentIndex + offset;
+
+    focusContactByIndex(nextIndex);
+}
+
 function renderWhatsAppContacts() {
-    const contacts = state.whatsappContacts.filter(contactMatchesSearch);
+    const contacts = getFilteredWhatsAppContacts();
+    const focusedChatId = getFocusedContactItem()?.dataset.chatId;
+    const selectedContactIsVisible = contacts.some(contact => contact.chatId === state.selectedContact?.chatId);
+
+    if (!selectedContactIsVisible) {
+        state.selectedContact = null;
+        addFrequent.disabled = true;
+    }
+
     whatsappContacts.innerHTML = "";
 
     if (contacts.length === 0) {
@@ -47,6 +108,8 @@ function renderWhatsAppContacts() {
     for (const contact of contacts) {
         const item = document.createElement("div");
         item.className = "item" + (state.selectedContact?.chatId === contact.chatId ? " selected" : "");
+        item.dataset.chatId = contact.chatId;
+        item.tabIndex = 0;
         item.innerHTML = `
             <div>
                 <div class="name"></div>
@@ -56,13 +119,19 @@ function renderWhatsAppContacts() {
         `;
         item.querySelector(".name").textContent = contact.name;
         item.querySelector(".phone").textContent = contact.phone;
-        item.querySelector("button").addEventListener("click", () => {
-            state.selectedContact = contact;
-            addFrequent.disabled = false;
-            renderWhatsAppContacts();
+        item.addEventListener("focus", () => selectContact(contact, false));
+        item.addEventListener("keydown", event => handleContactItemKeydown(event));
+        item.addEventListener("click", () => selectContact(contact));
+        item.querySelector("button").addEventListener("click", event => {
+            event.stopPropagation();
+            selectContact(contact);
         });
+        item.querySelector("button").tabIndex = -1;
         whatsappContacts.appendChild(item);
     }
+
+    if (focusedChatId)
+        whatsappContacts.querySelector(`[data-chat-id="${CSS.escape(focusedChatId)}"]`)?.focus();
 }
 
 function renderFrequentContacts() {
@@ -142,6 +211,38 @@ async function saveSelectedContact() {
     }
 }
 
+function handleContactItemKeydown(event) {
+    if (event.ctrlKey && event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        saveSelectedContact();
+        return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+        event.preventDefault();
+        focusRelativeContact(1);
+        return;
+    }
+
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+        event.preventDefault();
+        focusRelativeContact(-1);
+        return;
+    }
+
+    if (event.key === "Home") {
+        event.preventDefault();
+        focusContactByIndex(0);
+        return;
+    }
+
+    if (event.key === "End") {
+        event.preventDefault();
+        focusContactByIndex(Number.MAX_SAFE_INTEGER);
+    }
+}
+
 async function deleteFrequent(id) {
     setMessage(frequentMessage, "Eliminando contacto...");
 
@@ -154,8 +255,38 @@ async function deleteFrequent(id) {
 }
 
 search.addEventListener("input", renderWhatsAppContacts);
+search.addEventListener("keydown", event => {
+    if (event.ctrlKey && event.key === "Enter") {
+        event.preventDefault();
+        saveSelectedContact();
+        return;
+    }
+
+    if (event.key === "Enter") {
+        event.preventDefault();
+        loadWhatsAppContacts();
+        return;
+    }
+
+    if (event.key === "ArrowDown") {
+        event.preventDefault();
+        focusContactByIndex(0);
+    }
+});
 loadContacts.addEventListener("click", loadWhatsAppContacts);
 addFrequent.addEventListener("click", saveSelectedContact);
+addFrequent.addEventListener("keydown", event => {
+    if (event.ctrlKey && event.key === "Enter") {
+        event.preventDefault();
+        saveSelectedContact();
+    }
+});
 refreshFrequent.addEventListener("click", loadFrequentContacts);
+whatsappContacts.addEventListener("keydown", event => {
+    if (event.ctrlKey && event.key === "Enter") {
+        event.preventDefault();
+        saveSelectedContact();
+    }
+});
 
 loadFrequentContacts();

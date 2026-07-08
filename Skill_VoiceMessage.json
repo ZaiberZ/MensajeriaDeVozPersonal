@@ -80,6 +80,7 @@
           ],
           "samples": [
             "escribe a {ContactName}",
+            "escribe mensaje a {ContactName}",
             "manda mensaje a {ContactName}",
             "envia mensaje a {ContactName}",
             "quiero escribir a {ContactName}"
