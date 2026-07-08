@@ -43,13 +43,16 @@ const client = new Client({
     puppeteer: {
         headless: hasReadySession,
         executablePath: getChromePath(),
+        protocolTimeout: 180000,
+        timeout: 180000,
         args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--no-first-run",
-            "--disable-crash-reporter"
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-extensions'
         ]
     }
 });
@@ -84,8 +87,8 @@ client.on("ready", async () => {
     }
 
     // if (!hasSession) {
-        // console.log("Primera autenticación completada. Reiniciando Gateway...");
-        // setTimeout(() => { process.exit(0); }, 3000);
+    // console.log("Primera autenticación completada. Reiniciando Gateway...");
+    // setTimeout(() => { process.exit(0); }, 3000);
     // }
 });
 

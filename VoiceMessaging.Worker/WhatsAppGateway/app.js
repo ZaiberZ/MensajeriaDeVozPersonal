@@ -445,6 +445,7 @@ app.listen(PORT, () => {
     console.log("");
 });
 
+setTimeout(syncAirbnbEmailAndNotifySecondPhone, 15000);
 setInterval(syncAirbnbEmailAndNotifySecondPhone, airbnbEmailNotificationIntervalMs);
 
 app.post("/whatsapp/send", async (req, res) => {

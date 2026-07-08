@@ -174,10 +174,7 @@ function cleanEmailBody(body) {
 }
 
 function normalizeForMatch(value) {
-    return String(value || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
 function isAirbnbMessageCandidate(cleanBody, subject) {
@@ -250,33 +247,28 @@ function cleanAirbnbMessageText(value) {
 }
 
 function buildParsedAirbnbEmail(cleanBody, gmailMessageId, date, subject) {
-    const inquiryName = extractBetween(cleanBody, /Responde a la consulta de\s+/i, [
-        /Identidad verificada/i,
-        /Preaprobar/i,
-        /Casa con/i
-    ]);
-    const reservationName = extractBetween(cleanBody, /Nueva reservaci[oó]n confirmada!\s*/i, [
-        /\s+llega\b/i,
-        /Env[ií]a un mensaje/i
-    ]);
-    const subjectName = extractBetween(subject, /Reservaci[oó]n confirmada\s*-\s*/i, [
-        /\s+llega\b/i
-    ]);
+    const inquiryName = extractBetween(cleanBody, /Responde a la consulta de\s+/i, [/Identidad verificada/i, /Preaprobar/i, /Casa con/i]);
+    const reservationName = extractBetween(cleanBody, /Nueva reservaci[oó]n confirmada!\s*/i, [/\s+llega\b/i, /Env[ií]a un mensaje/i]);
+    const subjectName = extractBetween(subject, /Reservaci[oó]n confirmada\s*-\s*/i, [/\s+llega\b/i]);
     const sender = compactDuplicateName(inquiryName || subjectName || reservationName) || "Huésped de Airbnb";
-    const inquiryMessage = extractBetween(cleanBody, /Identidad verificada(?:\s*[·.-]\s*\d+\s+evaluaci[oó]n(?:es)?)?/i, [
-        /Preaprobar o rechazar/i,
-        /Enviar un mensaje/i,
-        /Casa con/i,
-        /Llegada/i
-    ]);
+    const inquiryMessage = extractBetween(cleanBody,
+        /Identidad verificada(?:\s*[·.-]\s*\d+\s+evaluaci[oó]n(?:es)?)?/i,
+        [/Preaprobar o rechazar/i, /Enviar un mensaje/i, /Casa con/i, /Llegada/i]);
     const reservationStart = new RegExp(`${escapeRegex(sender)}\\s*(?:Identidad verificada[^A-ZÁÉÍÓÚÑ]*)?`, "i");
-    const reservationMessage = extractBetween(cleanBody, reservationStart, [
-        /Enviar un mensaje/i,
-        /Casa con/i,
-        /Llegada/i
-    ]);
+    const reservationMessage = extractBetween(cleanBody, reservationStart, [/Enviar un mensaje/i, /Casa con/i, /Llegada/i]);
+    let isReservationConfirm = cleanBody.includes("NUEVA RESERVACIÓN CONFIRMADA");
+
     const fallbackMessage = cleanExtractedText(cleanBody);
-    const text = cleanAirbnbMessageText(inquiryMessage || reservationMessage || fallbackMessage).slice(0, 1200);
+    let text = cleanAirbnbMessageText(inquiryMessage || reservationMessage || fallbackMessage).slice(0, 1200);
+
+    if (isReservationConfirm) {
+        let date = extractBetween(cleanBody, /LLEGA EL\s+/i, [/Envía un mensaje para/i]);
+        text = "¡Reservación confirmada! Llega el " + date.toLowerCase();
+    }
+
+    // console.log("isReservationConfirm: " + isReservationConfirm + ", Sender: " + sender + ", ");
+    // console.log("cleanBody: " + cleanBody);
+    // console.log("text: " + text + "\n\n");
 
     return {
         gmailMessageId,

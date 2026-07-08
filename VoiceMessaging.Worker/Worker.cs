@@ -44,6 +44,8 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        //Retraso de inicio
+        await Task.Delay(TimeSpan.FromSeconds(50), stoppingToken);
         while (!stoppingToken.IsCancellationRequested && !await EnsureWhatsAppGatewayIsRunningAsync(stoppingToken, logUnavailableWarning: false))
         {
             await Task.Delay(5000, stoppingToken);
