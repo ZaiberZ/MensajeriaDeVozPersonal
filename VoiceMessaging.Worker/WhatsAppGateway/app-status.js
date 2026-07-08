@@ -15,24 +15,8 @@ const setWhatsAppActions = connected => {
     document.getElementById("logoutButton").hidden = !connected;
 };
 
-let lastAirbnbAutoOpenAt = 0;
-const airbnbAutoOpenIntervalMs = 60000;
-
 const openAirbnbMessages = () => {
     window.location.href = "voicemessaging-airbnb://messages";
-};
-
-const autoOpenAirbnbIfNeeded = status => {
-    if (!status.enabled || status.running || status.authenticated)
-        return;
-
-    const now = Date.now();
-    if (now - lastAirbnbAutoOpenAt < airbnbAutoOpenIntervalMs)
-        return;
-
-    lastAirbnbAutoOpenAt = now;
-    document.getElementById("detail").textContent = "Abriendo Airbnb para recuperar mensajes...";
-    openAirbnbMessages();
 };
 
 const setAirbnbActions = status => {
@@ -112,7 +96,6 @@ async function refreshStatus() {
             status.airbnb.authenticated ? "ok" : status.airbnb.enabled ? "warn" : "bad",
             status.airbnb.authenticated ? "Autenticada" : status.airbnb.enabled ? "Requiere login" : "No iniciada");
         setAirbnbActions(status.airbnb);
-        autoOpenAirbnbIfNeeded(status.airbnb);
         setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
 
         if (!status.workerRunning)
