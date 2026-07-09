@@ -45,7 +45,7 @@ Filename: "{cmd}"; Parameters: "/C """"{app}\Install Gateway Dependencies.bat"" 
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
 
-Filename: "{cmd}"; Parameters: "/C timeout /T 6 /NOBREAK"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C timeout /T 1 /NOBREAK"; Flags: runhidden waituntilterminated
 ; Pausado por ahora: no lanzar el Chrome separado de Airbnb durante la instalacion.
 ;Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"" voicemessaging-airbnb://startup"; WorkingDir: "{app}"; Flags: runhidden nowait
 Filename: "http://localhost:3000/whatsapp/qr"; Description: "Abrir página de autenticación de WhatsApp"; Flags: shellexec postinstall skipifsilent

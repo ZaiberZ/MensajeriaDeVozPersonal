@@ -38,9 +38,7 @@ function readUserData() {
 
 function getGmailConfig() {
     const configPath = fs.existsSync(localGmailConfigPath) ? localGmailConfigPath : gmailConfigPath;
-    const gmail = fs.existsSync(configPath)
-        ? readJsonFile(configPath)
-        : {};
+    const gmail = fs.existsSync(configPath) ? readJsonFile(configPath) : {};
 
     const gmailConfig = {
         enabled: gmail.enabled !== false,
@@ -246,6 +244,23 @@ function cleanAirbnbMessageText(value) {
         .trim();
 }
 
+/**
+ * @typedef AirbnbEmail
+ * @property {string} gmailMessageId
+ * @property {string} chatId
+ * @property {string} sender
+ * @property {string} text
+ * @property {string} date
+ */
+
+/**
+ * 
+ * @param {string} cleanBody
+ * @param {string} gmailMessageId
+ * @param {string} date
+ * @param {string} subject
+ * @returns {AirbnbEmail}
+ */
 function buildParsedAirbnbEmail(cleanBody, gmailMessageId, date, subject) {
     const inquiryName = extractBetween(cleanBody, /Responde a la consulta de\s+/i, [/Identidad verificada/i, /Preaprobar/i, /Casa con/i]);
     const reservationName = extractBetween(cleanBody, /Nueva reservaci[oó]n confirmada!\s*/i, [/\s+llega\b/i, /Env[ií]a un mensaje/i]);
@@ -262,8 +277,8 @@ function buildParsedAirbnbEmail(cleanBody, gmailMessageId, date, subject) {
     let text = cleanAirbnbMessageText(inquiryMessage || reservationMessage || fallbackMessage).slice(0, 1200);
 
     if (isReservationConfirm) {
-        let date = extractBetween(cleanBody, /LLEGA EL\s+/i, [/Envía un mensaje para/i]);
-        text = "¡Reservación confirmada! Llega el " + date.toLowerCase();
+        let date1 = extractBetween(cleanBody, /LLEGA EL\s+/i, [/Envía un mensaje para/i]);
+        text = "¡Reservación confirmada! Llega el " + date1.toLowerCase();
     }
 
     // console.log("isReservationConfirm: " + isReservationConfirm + ", Sender: " + sender + ", ");
@@ -279,6 +294,14 @@ function buildParsedAirbnbEmail(cleanBody, gmailMessageId, date, subject) {
     };
 }
 
+/**
+ * 
+ * @param {any} body
+ * @param {any} gmailMessageId
+ * @param {any} date
+ * @param {any} subject
+ * @returns {AirbnbEmail}
+ */
 function parseAirbnbEmail(body, gmailMessageId, date, subject = "") {
     const cleanBody = cleanEmailBody(body);
 
@@ -302,6 +325,11 @@ function writeProcessedIds(ids) {
     fs.writeFileSync(processedFilePath, JSON.stringify([...ids].slice(-1000), null, 2), "utf8");
 }
 
+/**
+ * 
+ * @param {{}} options
+ * @returns {[AirbnbEmail]}
+ */
 async function getAirbnbMessages(options = {}) {
     const client = getAuthenticatedClient();
 

@@ -14,7 +14,7 @@ const workerStatus = {
     hasPendingMessages: false
 };
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
-const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000;
+const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000; // 1 hr
 const firebaseBaseUrl = "https://voicemessaginghub-default-rtdb.firebaseio.com";
 let airbnbEmailNotificationRunning = false;
 
@@ -151,6 +151,11 @@ async function getAirbnbStatus() {
     };
 }
 
+/**
+ * 
+ * @param {[gmail.AirbnbEmail]} messages
+ * @returns
+ */
 function buildAirbnbNotificationMessage(messages) {
     const lines = [
         `Se detectaron ${messages.length} mensaje(s) nuevo(s) de Airbnb.`
@@ -159,9 +164,12 @@ function buildAirbnbNotificationMessage(messages) {
     for (const message of messages) {
         lines.push("");
         lines.push(`Huesped: ${message.sender || "Sin nombre"}`);
+        lines.push(`Fecha: ${message.date.substring(0, 16).replace("T", " a las ")}`);
         lines.push(`Mensaje: ${String(message.text || "").trim().slice(0, 1000)}`);
     }
 
+    // console.log(lines.join("\n").trim());
+    
     return lines.join("\n").trim();
 }
 
