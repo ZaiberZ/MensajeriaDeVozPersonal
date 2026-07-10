@@ -36,7 +36,7 @@ public class AlexaRequestRouter
         // return AlexaResponseFactory.Speak("Bienvenido al Hub de Mensajería. ¿Qué deseas hacer?");
         var text = await _conversation.ReadConversationSummaryAsync();
 
-        return AlexaResponseFactory.Speak($"Bienvenido. {text}");
+        return AlexaResponseFactory.Speak(text);
 
         //return AlexaResponseFactory.Speak(
 

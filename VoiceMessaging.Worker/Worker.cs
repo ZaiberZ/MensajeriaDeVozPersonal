@@ -13,6 +13,8 @@ public class Worker : BackgroundService
 {
     private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
     private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(50);
+    private static readonly TimeSpan StartupReadinessCheckInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InternetConnectionRetryInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan InternetConnectionWarningDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ErrorLogReportInterval = TimeSpan.FromDays(1);
@@ -26,6 +28,8 @@ public class Worker : BackgroundService
     private readonly EventLog eventLog;
     private UserDto _user = new();
     private Process? _gatewayProcess;
+    private StreamWriter? _gatewayLogWriter;
+    private readonly object _gatewayLogLock = new();
 
     public Worker(ILogger<Worker> logger, IConfiguration configuration)
     {
@@ -44,8 +48,7 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        //Retraso de inicio
-        await Task.Delay(TimeSpan.FromSeconds(50), stoppingToken);
+        await WaitForStartupDelayUnlessFirebaseIsReadyAsync(stoppingToken);
         while (!stoppingToken.IsCancellationRequested && !await EnsureWhatsAppGatewayIsRunningAsync(stoppingToken, logUnavailableWarning: false))
         {
             await Task.Delay(5000, stoppingToken);
@@ -159,6 +162,49 @@ public class Worker : BackgroundService
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
 
+    }
+
+    private async Task WaitForStartupDelayUnlessFirebaseIsReadyAsync(CancellationToken stoppingToken)
+    {
+        var startupWaitTime = Stopwatch.StartNew();
+
+        while (startupWaitTime.Elapsed < StartupDelay && !stoppingToken.IsCancellationRequested)
+        {
+            if (await EnsureWhatsAppGatewayIsRunningAsync(stoppingToken, logUnavailableWarning: false) &&
+                !string.IsNullOrWhiteSpace(_user.Phone) &&
+                await IsFirebaseReadyAsync(new FirebaseService(_user), stoppingToken))
+            {
+                _logger.LogInformation("Firebase ya responde correctamente. Se omite el retraso inicial del Worker.");
+                return;
+            }
+
+            var remainingDelay = StartupDelay - startupWaitTime.Elapsed;
+            var delay = remainingDelay < StartupReadinessCheckInterval ? remainingDelay : StartupReadinessCheckInterval;
+
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay, stoppingToken);
+        }
+    }
+
+    private static async Task<bool> IsFirebaseReadyAsync(FirebaseService firebase, CancellationToken stoppingToken)
+    {
+        try
+        {
+            await firebase.EnsureUserRegisteredAsync(stoppingToken);
+            return true;
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            return false;
+        }
     }
 
     private async Task WaitForInternetConnectionAsync(FirebaseService firebase, CancellationToken stoppingToken, Exception? connectionException = null)
@@ -468,37 +514,73 @@ public class Worker : BackgroundService
             }
 
             _gatewayProcess?.Dispose();
+            CloseGatewayLogWriter();
 
             var logPath = Path.Combine(GatewayDirectory, "gateway.log");
+            _gatewayLogWriter = new StreamWriter(new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+            {
+                AutoFlush = true
+            };
+            WriteGatewayLogLine("Iniciando Gateway...");
 
             var startInfo = new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                Arguments = $"/C echo Iniciando Gateway... > \"{logPath}\" && npm start >> \"{logPath}\" 2>&1",
+                FileName = "node.exe",
+                Arguments = "app.js",
                 WorkingDirectory = GatewayDirectory,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
 
             _gatewayProcess = Process.Start(startInfo);
 
             if (_gatewayProcess == null)
             {
+                CloseGatewayLogWriter();
                 _logger.LogError("Windows no pudo crear el proceso de WhatsAppGateway.");
                 return false;
             }
 
+            _gatewayProcess.EnableRaisingEvents = true;
+            _gatewayProcess.OutputDataReceived += (_, args) => WriteGatewayLogLine(args.Data);
+            _gatewayProcess.ErrorDataReceived += (_, args) => WriteGatewayLogLine(args.Data);
+            _gatewayProcess.Exited += (_, _) => CloseGatewayLogWriter();
+            _gatewayProcess.BeginOutputReadLine();
+            _gatewayProcess.BeginErrorReadLine();
 
-            _logger.LogInformation("WhatsAppGateway iniciado con npm start. Ruta: {path}", GatewayDirectory);
-            eventLog.WriteEntry("WhatsAppGateway iniciado con npm start.", EventLogEntryType.Information);
+            _logger.LogInformation("WhatsAppGateway iniciado con node app.js. Ruta: {path}", GatewayDirectory);
+            eventLog.WriteEntry("WhatsAppGateway iniciado con node app.js.", EventLogEntryType.Information);
             return true;
         }
         catch (Exception e)
         {
+            CloseGatewayLogWriter();
             eventLog.WriteEntry(e.Message, EventLogEntryType.Error);
             _logger.LogError("No se pudo iniciar WhatsAppGateway. Error: " + e.Message);
             return false;
         }
 
+    }
+
+    private void WriteGatewayLogLine(string? line)
+    {
+        if (line == null)
+            return;
+
+        lock (_gatewayLogLock)
+        {
+            _gatewayLogWriter?.WriteLine(line);
+        }
+    }
+
+    private void CloseGatewayLogWriter()
+    {
+        lock (_gatewayLogLock)
+        {
+            _gatewayLogWriter?.Dispose();
+            _gatewayLogWriter = null;
+        }
     }
 }

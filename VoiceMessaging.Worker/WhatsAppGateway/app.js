@@ -169,7 +169,7 @@ function buildAirbnbNotificationMessage(messages) {
     }
 
     // console.log(lines.join("\n").trim());
-    
+
     return lines.join("\n").trim();
 }
 
@@ -212,12 +212,9 @@ async function syncAirbnbEmailAndNotifySecondPhone() {
 function sanitizeContactId(contact) {
     const phone = cleanPhone(contact.phone);
 
-    if (phone)
-        return phone;
+    if (phone) return phone;
 
-    return String(contact.chatId || "")
-        .replace(/[^a-zA-Z0-9_-]/g, "_")
-        .replace(/^_+|_+$/g, "");
+    return String(contact.chatId || "").replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function normalizeFrequentContact(id, contact) {
@@ -320,17 +317,11 @@ app.delete("/contacts/frequent/:id", async (req, res) => {
     }
 });
 
-app.get("/airbnb/status", async (req, res) => {
-    res.json(await getAirbnbStatus());
-});
+app.get("/airbnb/status", async (req, res) => { res.json(await getAirbnbStatus()); });
 
-app.get("/airbnb/login", async (req, res) => {
-    res.status(410).json(disabledAirbnbPuppeteerResponse());
-});
+app.get("/airbnb/login", async (req, res) => { res.status(410).json(disabledAirbnbPuppeteerResponse()); });
 
-app.get("/airbnb/messages", async (req, res) => {
-    res.json([]);
-});
+app.get("/airbnb/messages", async (req, res) => { res.json([]); });
 
 app.post("/airbnb/send", async (req, res) => {
     res.status(501).json({

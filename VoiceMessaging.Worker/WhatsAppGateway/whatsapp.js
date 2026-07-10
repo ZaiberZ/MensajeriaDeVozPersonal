@@ -30,6 +30,7 @@ const hasSession = fs.existsSync(sessionPath);
 let initialized = false;
 let connected = false;
 let logoutInProgress = false;
+let restartScheduled = false;
 const initializationRetryDelayMs = 15 * 1000;
 const initializationMaxAttempts = 5;
 let lastQr = null;
@@ -101,7 +102,7 @@ client.on("auth_failure", message => {
     console.log(message);
 });
 
-client.on("disconnected", reason => {
+client.on("disconnected", async reason => {
 
     connected = false;
     User.IsRegistered = false;
@@ -112,8 +113,16 @@ client.on("disconnected", reason => {
     if (reason === "LOGOUT" && fs.existsSync(readyFilePath))
         fs.unlinkSync(readyFilePath);
 
-    if (!logoutInProgress) {
+    if (!logoutInProgress && !restartScheduled) {
+        restartScheduled = true;
         console.log("Reiniciando WhatsAppGateway para recuperar la conexión o generar un nuevo QR.");
+        try {
+            await client.destroy();
+        } catch (cleanupError) {
+            console.error("No fue posible cerrar Chromium antes de reiniciar WhatsAppGateway:");
+            console.error(cleanupError);
+        }
+
         setTimeout(() => process.exit(0), 1000);
     }
 
@@ -424,6 +433,7 @@ async function initialize() {
 
     initialized = false;
     console.error(`No fue posible inicializar WhatsApp después de ${initializationMaxAttempts} intentos. Se reiniciará WhatsAppGateway.`);
+    restartScheduled = true;
     setTimeout(() => process.exit(1), 1000);
 }
 
