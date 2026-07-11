@@ -181,7 +181,10 @@ function isAirbnbMessageCandidate(cleanBody, subject) {
     return text.includes("responde a la consulta de") ||
         text.includes("nueva reservacion confirmada") ||
         text.includes("reservacion confirmada") ||
-        text.includes("consulta sobre");
+        text.includes("consulta sobre") ||
+        text.includes("quiere hacer un cambio en su reservacion") ||
+        text.includes("hoy tramitamos el pago de") ||
+        text.includes("reservacion cancelada");
 }
 
 function cleanExtractedText(value) {
@@ -262,23 +265,60 @@ function cleanAirbnbMessageText(value) {
  * @returns {AirbnbEmail}
  */
 function buildParsedAirbnbEmail(cleanBody, gmailMessageId, date, subject) {
+    const normalizedContent = normalizeForMatch(`${subject} ${cleanBody}`);
+    const isInquiry = normalizedContent.includes("responde a la consulta de") || normalizedContent.includes("consulta sobre");
+    const isReservationConfirm = normalizedContent.includes("nueva reservacion confirmada") || normalizedContent.includes("reservacion confirmada");
+    const isReservationChange = normalizedContent.includes("quiere hacer un cambio en su reservacion");
+    const isPayment = normalizedContent.includes("hoy tramitamos el pago de");
+    const isCancellation = normalizedContent.includes("reservacion cancelada");
+
+    if (!isInquiry && !isReservationConfirm && !isReservationChange && !isPayment && !isCancellation)
+        return null;
+
     const inquiryName = extractBetween(cleanBody, /Responde a la consulta de\s+/i, [/Identidad verificada/i, /Preaprobar/i, /Casa con/i]);
     const reservationName = extractBetween(cleanBody, /Nueva reservaci[oó]n confirmada!\s*/i, [/\s+llega\b/i, /Env[ií]a un mensaje/i]);
     const subjectName = extractBetween(subject, /Reservaci[oó]n confirmada\s*-\s*/i, [/\s+llega\b/i]);
-    const sender = compactDuplicateName(inquiryName || subjectName || reservationName) || "Huésped de Airbnb";
+    const changeName = isReservationChange
+        ? extractBetween(cleanBody, /^\s*/i, [/\s+quiere hacer un cambio en su reservaci[oó]n/i])
+        : "";
+    const cancellationName = isCancellation
+        ? extractBetween(cleanBody, /Lamentamos informarte que\s+/i, [/,\s*tu hu[eé]sped/i])
+        : "";
+    const sender = isPayment
+        ? "Airbnb"
+        : compactDuplicateName(inquiryName || subjectName || reservationName || changeName || cancellationName) || "Huésped de Airbnb";
     const inquiryMessage = extractBetween(cleanBody,
         /Identidad verificada(?:\s*[·.-]\s*\d+\s+evaluaci[oó]n(?:es)?)?/i,
         [/Preaprobar o rechazar/i, /Enviar un mensaje/i, /Casa con/i, /Llegada/i]);
     const reservationStart = new RegExp(`${escapeRegex(sender)}\\s*(?:Identidad verificada[^A-ZÁÉÍÓÚÑ]*)?`, "i");
     const reservationMessage = extractBetween(cleanBody, reservationStart, [/Enviar un mensaje/i, /Casa con/i, /Llegada/i]);
-    let isReservationConfirm = cleanBody.includes("NUEVA RESERVACIÓN CONFIRMADA");
 
     const fallbackMessage = cleanExtractedText(cleanBody);
     let text = cleanAirbnbMessageText(inquiryMessage || reservationMessage || fallbackMessage).slice(0, 1200);
 
     if (isReservationConfirm) {
-        let date1 = extractBetween(cleanBody, /LLEGA EL\s+/i, [/Envía un mensaje para/i]);
-        text = "¡Reservación confirmada! Llega el " + date1.toLowerCase();
+        const arrivalDate = extractBetween(cleanBody, /llega el\s+/i, [/Env[ií]a un mensaje para/i]);
+        text = arrivalDate ? `¡Reservación confirmada! Llega el ${arrivalDate.toLowerCase()}` : "¡Reservación confirmada!";
+    } else if (isReservationChange) {
+        const originalDates = extractBetween(cleanBody, /Fechas originales\s+/i, [/Fechas solicitadas/i]);
+        const requestedDates = extractBetween(cleanBody, /Fechas solicitadas\s+/i, [/Si aceptas la solicitud/i]);
+        text = `${sender} quiere hacer un cambio en su reservación.`;
+
+        if (originalDates && requestedDates)
+            text += ` Fechas originales: ${originalDates}. Fechas solicitadas: ${requestedDates}.`;
+    } else if (isPayment) {
+        const paymentAmount = extractBetween(cleanBody, /Hoy tramitamos el pago de\s+/i, [/Tu dinero se envi[oó]/i]);
+        const paymentStatus = extractBetween(cleanBody, /Tu dinero se envi[oó]\s+/i, [/Mostrar ingresos/i]);
+        text = `Hoy tramitamos el pago de ${paymentAmount}.`;
+
+        if (paymentStatus)
+            text += ` Tu dinero se envió ${paymentStatus.replace(/[.\s]+$/, "")}.`;
+    } else if (isCancellation) {
+        const cancellationDetails = extractBetween(cleanBody, /Lamentamos informarte que\s+/i, [/Actualizamos tu calendario/i]);
+        text = "Reservación cancelada.";
+
+        if (cancellationDetails)
+            text += ` ${cancellationDetails}`;
     }
 
     // console.log("isReservationConfirm: " + isReservationConfirm + ", Sender: " + sender + ", ");
@@ -337,7 +377,18 @@ async function getAirbnbMessages(options = {}) {
         throw new Error("Gmail no está autenticado.");
 
     const gmail = google.gmail({ version: "v1", auth: client });
-    const query = options.query || 'from:automated@airbnb.com ("Responde a la consulta de" OR "Reservación confirmada" OR "Nueva reservación confirmada" OR "Consulta sobre") newer_than:7d';
+    const defaultQuery = [
+        "from:automated@airbnb.com",
+        "(\"Responde a la consulta de\"",
+        "OR \"Reservación confirmada\"",
+        "OR \"Nueva reservación confirmada\"",
+        "OR \"Consulta sobre\"",
+        "OR \"quiere hacer un cambio en su reservación\"",
+        "OR \"Hoy tramitamos el pago de\"",
+        "OR \"Reservación cancelada\")",
+        "newer_than:7d"
+    ].join(" ");
+    const query = options.query || defaultQuery;
     const maxResults = Math.min(Math.max(Number(options.maxResults) || 10, 1), 25);
     const processedIds = options.includeProcessed ? new Set() : readProcessedIds();
     const listResponse = await gmail.users.messages.list({ userId: "me", q: query, maxResults });
@@ -358,6 +409,8 @@ async function getAirbnbMessages(options = {}) {
         if (parsed)
             messages.push(parsed);
     }
+
+    messages.sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
 
     return messages;
 }

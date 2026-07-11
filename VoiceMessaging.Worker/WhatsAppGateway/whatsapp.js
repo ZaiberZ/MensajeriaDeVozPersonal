@@ -153,6 +153,8 @@ function isSupportedIncomingMessage(message) {
 
     return Boolean(message.body) &&
         !message.fromMe &&
+        chatId !== "0@c.us" &&
+        message.type !== "image" &&
         !chatId.includes("@g.us") &&
         !chatId.includes("status@broadcast") &&
         !isChannelChatId(chatId);
