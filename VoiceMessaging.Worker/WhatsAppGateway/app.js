@@ -1,4 +1,6 @@
 const express = require("express");
+const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const cors = require("cors");
 
@@ -16,7 +18,11 @@ const workerStatus = {
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
 const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000; // 1 hr
 const firebaseBaseUrl = "https://voicemessaginghub-default-rtdb.firebaseio.com";
+const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
+const dataDirectory = path.join(dataRoot, "VoiceMessaging");
+const pendingAirbnbNotificationPath = path.join(dataDirectory, "pending-airbnb-notification.json");
 let airbnbEmailNotificationRunning = false;
+let pendingAirbnbNotification = readPendingAirbnbNotification();
 
 app.use(express.static(__dirname));
 app.use(cors());
@@ -173,6 +179,36 @@ function buildAirbnbNotificationMessage(messages) {
     return lines.join("\n").trim();
 }
 
+function readPendingAirbnbNotification() {
+    if (!fs.existsSync(pendingAirbnbNotificationPath))
+        return null;
+
+    try {
+        const notification = JSON.parse(fs.readFileSync(pendingAirbnbNotificationPath, "utf8").replace(/^\uFEFF/, ""));
+        return Array.isArray(notification?.messages) && notification.messages.length > 0 ? notification : null;
+    } catch (error) {
+        console.warn(`No se pudo leer la notificación pendiente de Airbnb: ${error.message}`);
+        return null;
+    }
+}
+
+function savePendingAirbnbNotification(messages) {
+    pendingAirbnbNotification = {
+        messages,
+        createdAt: new Date().toISOString()
+    };
+
+    fs.mkdirSync(dataDirectory, { recursive: true });
+    fs.writeFileSync(pendingAirbnbNotificationPath, JSON.stringify(pendingAirbnbNotification, null, 2), "utf8");
+}
+
+function clearPendingAirbnbNotification() {
+    pendingAirbnbNotification = null;
+
+    if (fs.existsSync(pendingAirbnbNotificationPath))
+        fs.unlinkSync(pendingAirbnbNotificationPath);
+}
+
 async function syncAirbnbEmailAndNotifySecondPhone() {
     if (airbnbEmailNotificationRunning)
         return;
@@ -193,14 +229,22 @@ async function syncAirbnbEmailAndNotifySecondPhone() {
             return;
         }
 
-        const result = await gmail.syncAirbnbMessages();
-        const newMessages = Array.isArray(result.savedMessages) ? result.savedMessages : [];
+        if (!pendingAirbnbNotification) {
+            const result = await gmail.syncAirbnbMessages();
+            const newMessages = Array.isArray(result.savedMessages) ? result.savedMessages : [];
 
-        if (newMessages.length === 0)
-            return;
+            if (newMessages.length === 0)
+                return;
 
-        await whatsapp.sendMessage(null, secondAribnbPhone, buildAirbnbNotificationMessage(newMessages));
-        console.log(`Notificacion de Airbnb enviada a SecondAribnbPhone con ${newMessages.length} mensaje(s).`);
+            savePendingAirbnbNotification(newMessages);
+        } else {
+            console.log(`Reintentando notificación pendiente de Airbnb con ${pendingAirbnbNotification.messages.length} mensaje(s).`);
+        }
+
+        const messageCount = pendingAirbnbNotification.messages.length;
+        await whatsapp.sendMessage(null, secondAribnbPhone, buildAirbnbNotificationMessage(pendingAirbnbNotification.messages));
+        clearPendingAirbnbNotification();
+        console.log(`Notificacion de Airbnb enviada a SecondAribnbPhone con ${messageCount} mensaje(s).`);
     } catch (error) {
         console.error("Error revisando o notificando mensajes Airbnb por Gmail:");
         console.error(error);

@@ -33,6 +33,8 @@ let logoutInProgress = false;
 let restartScheduled = false;
 const initializationRetryDelayMs = 15 * 1000;
 const initializationMaxAttempts = 5;
+const sendRetryDelayMs = 5 * 1000;
+const sendMaxAttempts = 3;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
@@ -305,7 +307,16 @@ function normalizePhone(phone) {
 
 }
 
-async function sendMessage(chatId, phone, text) {
+function isTransientBrowserError(error) {
+    const message = String(error?.message || error || "").toLowerCase();
+
+    return message.includes("detached frame") ||
+        message.includes("execution context was destroyed") ||
+        message.includes("target closed") ||
+        message.includes("whatsapp no está conectado");
+}
+
+async function sendMessageOnce(chatId, phone, text) {
     if (!connected)
         throw new Error("WhatsApp no está conectado.");
 
@@ -322,6 +333,21 @@ async function sendMessage(chatId, phone, text) {
         throw new Error(`El número ${phone} no existe en WhatsApp.`);
 
     await client.sendMessage(numberId._serialized, text);
+}
+
+async function sendMessage(chatId, phone, text) {
+    for (let attempt = 1; attempt <= sendMaxAttempts; attempt++) {
+        try {
+            await sendMessageOnce(chatId, phone, text);
+            return;
+        } catch (error) {
+            if (!isTransientBrowserError(error) || attempt === sendMaxAttempts)
+                throw error;
+
+            console.warn(`WhatsApp Web cambió de contexto durante el envío. Reintento ${attempt + 1} de ${sendMaxAttempts} en ${sendRetryDelayMs / 1000} segundos.`);
+            await new Promise(resolve => setTimeout(resolve, sendRetryDelayMs));
+        }
+    }
 }
 
 async function getPendingMessages() {
