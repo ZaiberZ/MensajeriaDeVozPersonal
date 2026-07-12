@@ -12,6 +12,10 @@
           "samples": []
         },
         {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
           "name": "AMAZON.StopIntent",
           "samples": []
         },
@@ -249,7 +253,7 @@
         "variations": [
           {
             "type": "PlainText",
-            "value": "Â¿A quÃ© contacto quieres escribirle?"
+            "value": "¿A qué contacto quieres escribirle?"
           }
         ]
       }

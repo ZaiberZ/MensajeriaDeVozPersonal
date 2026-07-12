@@ -73,7 +73,9 @@ public class AlexaRequestRouter
             "DictadoRespuestaIntent" => SaveText(request),
             "ConfirmarIntent" => await ConfirmReply(request),
             "CancelarRespuestaIntent" => CancelReply(request),
-            "AMAZON.HelpIntent" => AlexaResponseFactory.Speak("Puedes decir leer mensajes o responder."),
+            "AMAZON.HelpIntent" => AlexaResponseFactory.Speak("Puedes decir leer mensajes, leer los últimos mensajes, siguiente, repetir, responder, escribir a un contacto o configurar mi número de WhatsApp."),
+            "AMAZON.FallbackIntent" => AlexaResponseFactory.Speak("No entendí ese comando. Puedes decir leer mensajes, escribir a un contacto o pedir ayuda."),
+            "AMAZON.NavigateHomeIntent" => await Launch(),
             "AMAZON.StopIntent" or "AMAZON.CancelIntent" => AlexaResponseFactory.EndConversation("Hasta luego."),
             _ => AlexaResponseFactory.Speak("No entendí ese comando.")
         };
