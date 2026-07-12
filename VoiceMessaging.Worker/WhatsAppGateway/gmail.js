@@ -210,6 +210,7 @@ function compactDuplicateName(value) {
 
 function cleanAirbnbSenderName(value) {
     return cleanExtractedText(value)
+        .replace(/%\s*opentrack\s*%/gi, " ")
         .replace(/\[[^\]]*https?:\/\/[^\]]*\]/gi, " ")
         .replace(/https?:\/\/\S+/gi, " ")
         .replace(/www\.\S+/gi, " ")
