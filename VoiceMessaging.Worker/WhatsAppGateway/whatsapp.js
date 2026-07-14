@@ -153,10 +153,10 @@ client.on("message", async (message) => {
 function isSupportedIncomingMessage(message) {
     const chatId = message.from || "";
 
-    return Boolean(message.body) &&
+    return message.type === "chat" &&
+        Boolean(message.body) &&
         !message.fromMe &&
         chatId !== "0@c.us" &&
-        message.type !== "image" &&
         !chatId.includes("@g.us") &&
         !chatId.includes("status@broadcast") &&
         !isChannelChatId(chatId);

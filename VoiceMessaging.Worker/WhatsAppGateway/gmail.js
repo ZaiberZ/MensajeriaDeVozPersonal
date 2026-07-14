@@ -248,6 +248,10 @@ function cleanAirbnbMessageText(value) {
         .trim();
 }
 
+function removeReservationCodes(value) {
+    return value.replace(/(\breservaci[oó]n)\s+[A-Z0-9]{6,16}\b/g, "$1");
+}
+
 /**
  * @typedef AirbnbEmail
  * @property {string} gmailMessageId
@@ -321,6 +325,8 @@ function buildParsedAirbnbEmail(cleanBody, gmailMessageId, date, subject) {
         if (cancellationDetails)
             text += ` ${cancellationDetails}`;
     }
+
+    text = removeReservationCodes(text);
 
     // console.log("isReservationConfirm: " + isReservationConfirm + ", Sender: " + sender + ", ");
     // console.log("cleanBody: " + cleanBody);

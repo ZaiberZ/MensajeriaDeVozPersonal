@@ -4,6 +4,8 @@ namespace AlexaSkillWhatsApp.Services;
 
 public class ConversationService
 {
+    private const int MaxSpokenMessageLength = 1200;
+    private const int MaxConversationSpeechLength = 6000;
     private readonly FirebaseService _firebase;
 
     public ConversationService(UserDto user)
@@ -43,7 +45,7 @@ public class ConversationService
         return
             $"Mensaje {index + 1} de {messages.Count}. " +
             $"{GetMessageIntro(message)}. " +
-            $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
+            $"{PrepareMessageForSpeech(message.Text)}. " +
             GetNavigationPrompt(message);
     }
 
@@ -59,7 +61,7 @@ public class ConversationService
         return
             $"Mensaje 1 de {messages.Count}. " +
             $"{GetMessageIntro(message)}. " +
-            $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. " +
+            $"{PrepareMessageForSpeech(message.Text)}. " +
             GetNavigationPrompt(message);
     }
     public async Task<List<MessageDto>> GetLastMessagesAsync(int count)
@@ -148,7 +150,15 @@ public class ConversationService
 
         foreach (var message in conversationMessages)
         {
-            text += $"{MessageTextSanitizer.ReplaceLinksForSpeech(message.Text)}. ";
+            var spokenMessage = $"{PrepareMessageForSpeech(message.Text)}. ";
+
+            if (text.Length + spokenMessage.Length > MaxConversationSpeechLength)
+            {
+                text += "El resto de la conversación se omitió por ser demasiado larga. ";
+                break;
+            }
+
+            text += spokenMessage;
         }
 
         text += GetNavigationPrompt(firstMessage);
@@ -170,6 +180,11 @@ public class ConversationService
             return $"Airbnb de {message.Sender}";
 
         return message.Sender;
+    }
+
+    private static string PrepareMessageForSpeech(string? text)
+    {
+        return MessageTextSanitizer.ReplaceLinksForSpeech(text, MaxSpokenMessageLength);
     }
 
     private static bool IsAirbnbSource(string source)
