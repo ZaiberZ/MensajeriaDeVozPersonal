@@ -50,6 +50,9 @@ public class AlexaRequestRouter
         var intentName = request.Request.Intent?.Name;
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
+        if (state.WaitingForLastMessagesContactConfirmation && intentName is not "ConfirmarIntent" and not "CancelarRespuestaIntent" and not "AMAZON.StopIntent" and not "AMAZON.CancelIntent")
+            return AlexaResponseFactory.Speak($"Di sí si quieres escuchar los últimos mensajes de {state.SelectedContactName}, o no para cancelar.", state);
+
         if (state.WaitingForContactConfirmation && intentName is not "ConfirmarIntent" and not "CancelarRespuestaIntent" and not "AMAZON.StopIntent" and not "AMAZON.CancelIntent")
             return AlexaResponseFactory.Speak($"Di sí si {state.SelectedContactName} es el contacto al que quieres escribir, o no para cancelarlo.", state);
 
@@ -68,6 +71,7 @@ public class AlexaRequestRouter
             "SiguienteMensajeIntent" => await NextMessage(request),
             "RepetirMensajeIntent" => RepeatMessage(request),
             "LeerUltimosMensajesIntent" => await ReadLastMessages(request),
+            "LeerUltimosMensajesContactoIntent" => await BeginReadLastContactMessages(request),
             "WriteContactMessageIntent" => await BeginContactMessage(request),
             "ResponderMensajeIntent" => state.WaitingForContactMessage ? SaveText(request) : Reply(request),
             "DictadoRespuestaIntent" => SaveText(request),
@@ -174,26 +178,20 @@ public class AlexaRequestRouter
         var contacts = await _conversation.GetFrequentContactsAsync(_user.Phone);
         var contact = FindExactContact(contacts, contactName);
 
-        if (contact != null)
-            return AskForContactMessage(contact);
-
-        contact = FindPartialContact(contacts, contactName);
+        contact ??= FindPartialContact(contacts, contactName);
 
         if (contact == null)
             return AlexaResponseFactory.Speak("No encontré ese contacto registrado. Primero agrégalo desde la interfaz del gateway.");
 
+        return AskForContactConfirmation(contact);
+    }
+
+    private static string AskForContactConfirmation(ContactDto contact)
+    {
         var state = CreateSelectedContactState(contact);
         state.WaitingForContactConfirmation = true;
 
-        return AlexaResponseFactory.Speak($"Encontré a {contact.Name}. ¿Es el contacto al que quieres escribir?", state);
-    }
-
-    private static string AskForContactMessage(ContactDto contact)
-    {
-        var state = CreateSelectedContactState(contact);
-        state.WaitingForContactMessage = true;
-
-        return AlexaResponseFactory.ElicitSlot($"¿Qué mensaje quieres enviarle a {contact.Name}?", "DictadoRespuestaIntent", "respuesta", state);
+        return AlexaResponseFactory.Speak($"¿Quieres escribirle a {contact.Name}?", state);
     }
 
     private static ConversationState CreateSelectedContactState(ContactDto contact)
@@ -221,12 +219,57 @@ public class AlexaRequestRouter
         if (string.IsNullOrWhiteSpace(normalizedName))
             return null;
 
-        return contacts.FirstOrDefault(contact =>
+        var candidate = contacts
+            .Select(contact => new { Contact = contact, Score = GetContactMatchScore(normalizedName, NormalizeContactName(contact.Name)) })
+            .Where(candidate => candidate.Score >= 0)
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => candidate.Contact.Name.Length)
+            .FirstOrDefault();
+
+        return candidate?.Contact;
+    }
+
+    private static int GetContactMatchScore(string searchName, string contactName)
+    {
+        if (contactName.Contains(searchName))
+            return 1000 - (contactName.Length - searchName.Length);
+
+        var searchWords = searchName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var contactWords = contactName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var bestDistance = contactWords
+            .SelectMany(contactWord => searchWords.Select(searchWord => GetEditDistance(searchWord, contactWord)))
+            .DefaultIfEmpty(int.MaxValue)
+            .Min();
+        var longestSearchWord = searchWords.DefaultIfEmpty("").Max(word => word.Length);
+        var maximumDistance = Math.Max(1, longestSearchWord / 3);
+
+        return bestDistance <= maximumDistance ? 500 - bestDistance : -1;
+    }
+
+    private static int GetEditDistance(string source, string target)
+    {
+        var distances = new int[target.Length + 1];
+
+        for (var targetIndex = 0; targetIndex <= target.Length; targetIndex++)
+            distances[targetIndex] = targetIndex;
+
+        for (var sourceIndex = 1; sourceIndex <= source.Length; sourceIndex++)
         {
-            var normalizedContactName = NormalizeContactName(contact.Name);
-            return normalizedContactName.Contains(normalizedName) ||
-                normalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(word => normalizedContactName.Contains(word));
-        });
+            var previousDiagonal = distances[0];
+            distances[0] = sourceIndex;
+
+            for (var targetIndex = 1; targetIndex <= target.Length; targetIndex++)
+            {
+                var previousAbove = distances[targetIndex];
+                var substitutionCost = source[sourceIndex - 1] == target[targetIndex - 1] ? 0 : 1;
+                distances[targetIndex] = Math.Min(
+                    Math.Min(distances[targetIndex] + 1, distances[targetIndex - 1] + 1),
+                    previousDiagonal + substitutionCost);
+                previousDiagonal = previousAbove;
+            }
+        }
+
+        return distances[target.Length];
     }
 
     private static string NormalizeContactName(string? value)
@@ -370,6 +413,12 @@ public class AlexaRequestRouter
     {
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
+        if (state.WaitingForLastMessagesContactConfirmation)
+        {
+            ClearLastMessagesContactState(state);
+            return AlexaResponseFactory.Speak("De acuerdo. Se canceló la lectura.", state);
+        }
+
         if (state.WaitingForContactConfirmation)
             return CancelContactCandidate(state);
 
@@ -386,6 +435,9 @@ public class AlexaRequestRouter
         var state = ConversationState.FromSession(request.Session?.Attributes);
 
         context.Logger.LogLine("state: " + JsonSerializer.Serialize(state));
+
+        if (state.WaitingForLastMessagesContactConfirmation)
+            return await ReadSelectedContactLastMessages(state);
 
         if (state.WaitingForContactConfirmation)
             return ConfirmContactCandidate(state);
@@ -504,6 +556,70 @@ public class AlexaRequestRouter
         }
 
         return AlexaResponseFactory.Speak(sb.ToString());
+    }
+
+    private async Task<string> BeginReadLastContactMessages(AlexaRequest request)
+    {
+        if (!TryGetSlotValue(request, "ContactName", out var contactName))
+            return AlexaResponseFactory.ElicitSlot("¿De qué contacto quieres escuchar los últimos mensajes?", "LeerUltimosMensajesContactoIntent", "ContactName", new ConversationState());
+
+        var contacts = (await _conversation.GetFrequentContactsAsync(_user.Phone))
+            .Where(contact => string.Equals(contact.Source, "WhatsApp", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var contact = FindExactContact(contacts, contactName);
+
+        if (contact != null)
+            return await ReadContactLastMessages(contact);
+
+        contact = FindPartialContact(contacts, contactName);
+
+        if (contact == null)
+            return AlexaResponseFactory.Speak("No encontré ese contacto entre tus favoritos.");
+
+        var state = CreateSelectedContactState(contact);
+        state.WaitingForLastMessagesContactConfirmation = true;
+        return AlexaResponseFactory.Speak($"Encontré a {contact.Name}. ¿Quieres escuchar sus últimos mensajes?", state);
+    }
+
+    private async Task<string> ReadSelectedContactLastMessages(ConversationState state)
+    {
+        var contact = new ContactDto
+        {
+            Name = state.SelectedContactName,
+            ChatId = state.SelectedContactChatId,
+            Phone = state.SelectedContactPhone,
+            Source = state.SelectedContactSource
+        };
+
+        ClearLastMessagesContactState(state);
+        return await ReadContactLastMessages(contact, state);
+    }
+
+    private async Task<string> ReadContactLastMessages(ContactDto contact, ConversationState? state = null)
+    {
+        var messages = await _conversation.GetLastMessagesByChatAsync(contact.ChatId, 5);
+
+        if (messages.Count == 0)
+            return AlexaResponseFactory.Speak($"No tengo mensajes guardados de {contact.Name}.", state);
+
+        var speech = new StringBuilder($"Estos son los últimos {messages.Count} mensajes de {contact.Name}. ");
+
+        for (var index = 0; index < messages.Count; index++)
+        {
+            speech.Append($"Mensaje {index + 1}. {MessageTextSanitizer.ReplaceLinksForSpeech(messages[index].Text, 1200)}. ");
+            await _conversation.MarkAsReadAsync(messages[index].Id);
+        }
+
+        return AlexaResponseFactory.Speak(speech.ToString(), state);
+    }
+
+    private static void ClearLastMessagesContactState(ConversationState state)
+    {
+        state.WaitingForLastMessagesContactConfirmation = false;
+        state.SelectedContactName = "";
+        state.SelectedContactChatId = "";
+        state.SelectedContactSource = "";
+        state.SelectedContactPhone = "";
     }
 
     private async Task MarkConversationAsReadAsync(List<MessageDto> allPendingMessages, List<MessageDto> conversationMessages)

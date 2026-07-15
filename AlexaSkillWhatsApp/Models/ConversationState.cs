@@ -31,6 +31,7 @@ public class ConversationState
     public string SelectedContactPhone { get; set; } = "";
     public string PendingText { get; set; } = "";
     public bool WaitingForContactConfirmation { get; set; }
+    public bool WaitingForLastMessagesContactConfirmation { get; set; }
 
     public static ConversationState FromSession(Dictionary<string, JsonElement>? attributes)
     {
@@ -99,6 +100,9 @@ public class ConversationState
         if (attributes.TryGetValue(nameof(WaitingForContactConfirmation), out var waitingForContactConfirmation))
             state.WaitingForContactConfirmation = waitingForContactConfirmation.GetBoolean();
 
+        if (attributes.TryGetValue(nameof(WaitingForLastMessagesContactConfirmation), out var waitingForLastMessagesContactConfirmation))
+            state.WaitingForLastMessagesContactConfirmation = waitingForLastMessagesContactConfirmation.GetBoolean();
+
         return state;
     }
 
@@ -126,6 +130,7 @@ public class ConversationState
             { nameof(SelectedContactPhone), SelectedContactPhone },
             { nameof(PendingText), PendingText },
             { nameof(WaitingForContactConfirmation), WaitingForContactConfirmation },
+            { nameof(WaitingForLastMessagesContactConfirmation), WaitingForLastMessagesContactConfirmation },
         };
     }
 }

@@ -342,7 +342,7 @@ public class FirebaseService
     }
     public async Task MarkAsReadAsync(string messageId)
     {
-        var body = JsonSerializer.Serialize(new { isRead = true });
+        var body = JsonSerializer.Serialize(new { isRead = true, readAt = AppClock.Now });
 
         var request = new HttpRequestMessage(HttpMethod.Patch, $"{PendingMessagesPath}/{messageId}.json")
         {

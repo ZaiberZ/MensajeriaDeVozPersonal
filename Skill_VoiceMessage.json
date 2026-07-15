@@ -83,6 +83,10 @@
             }
           ],
           "samples": [
+            "escribe mensaje",
+            "quiero escribir un mensaje",
+            "manda un mensaje",
+            "manda mensaje",
             "escribe a {ContactName}",
             "escribe mensaje a {ContactName}",
             "manda mensaje a {ContactName}",
@@ -131,6 +135,21 @@
             "leer últimos {cantidad} mensajes",
             "dime los últimos mensajes",
             "últimos mensajes"
+          ]
+        },
+        {
+          "name": "LeerUltimosMensajesContactoIntent",
+          "slots": [
+            {
+              "name": "ContactName",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "lee los últimos mensajes de {ContactName}",
+            "leer los últimos mensajes de {ContactName}",
+            "dime los últimos mensajes de {ContactName}",
+            "qué ha escrito {ContactName}"
           ]
         },
         {
@@ -235,6 +254,23 @@
               }
             }
           ]
+        },
+        {
+          "name": "LeerUltimosMensajesContactoIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "ContactName",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.LastMessagesContactName"
+              }
+            }
+          ]
         }
       ]
     },
@@ -254,6 +290,15 @@
           {
             "type": "PlainText",
             "value": "¿A qué contacto quieres escribirle?"
+          }
+        ]
+      },
+      {
+        "id": "Elicit.Slot.LastMessagesContactName",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "¿De qué contacto quieres escuchar los últimos mensajes?"
           }
         ]
       }

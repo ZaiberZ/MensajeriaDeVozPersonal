@@ -70,6 +70,16 @@ public class ConversationService
 
         return messages.TakeLast(count).ToList();
     }
+    public async Task<List<MessageDto>> GetLastMessagesByChatAsync(string chatId, int count)
+    {
+        var messages = await _firebase.GetAllMessagesAsync();
+
+        return messages
+            .Where(message => message.ChatId == chatId)
+            .OrderBy(message => message.Date)
+            .TakeLast(count)
+            .ToList();
+    }
     public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text)
     {
         await _firebase.SaveReplyAsync(messageId, chatId, phone, sender, account, currentSource, text);

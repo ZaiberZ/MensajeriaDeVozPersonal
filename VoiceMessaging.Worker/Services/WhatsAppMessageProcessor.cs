@@ -163,12 +163,52 @@ public class WhatsAppMessageProcessor
 
     }
 
+    public async Task<bool> SyncFavoriteContactMessagesAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            var contacts = await _firebase.GetFrequentContactsAsync("");
+            var chatIds = contacts
+                .Where(contact => string.Equals(contact.Source, "WhatsApp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(contact.ChatId))
+                .Select(contact => contact.ChatId).Distinct().ToList();
+
+            if (chatIds.Count == 0)                return true;
+
+            var recentMessages = await _whatsApp.GetRecentMessagesAsync(chatIds, 5);
+
+            if (recentMessages == null)                return false;
+
+            var firebaseMessages = await _firebase.GetAllMessagesAsync();
+            var addedMessages = 0;
+
+            foreach (var message in recentMessages.Where(message => !MessageFilter.IsAdvertising(message)))
+            {
+                if (FindMatchingMessage(firebaseMessages, message) != null)
+                    continue;
+
+                var firebaseMessage = CreateFirebaseMessage(message, isRead: true);
+                await _firebase.SaveIncomingMessageAsync(firebaseMessage);
+                firebaseMessages.Add(firebaseMessage);
+                addedMessages++;
+            }
+
+            _logger.LogInformation("Sincronización de favoritos completada. Mensajes históricos agregados: {added}.", addedMessages);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sincronizando los últimos mensajes de los contactos favoritos.");
+            await _registerWorkerLog("error", $"Error sincronizando los últimos mensajes de los contactos favoritos: {ex}", stoppingToken);
+            return false;
+        }
+    }
+
     public Task SendReplyAsync(ReplyMessageDto reply)
     {
         return _whatsApp.SendReplyAsync(reply);
     }
 
-    private static MessageDto CreateFirebaseMessage(WhatsAppIncomingMessageDto message)
+    private static MessageDto CreateFirebaseMessage(WhatsAppIncomingMessageDto message, bool isRead = false)
     {
         return new MessageDto
         {
@@ -180,7 +220,8 @@ public class WhatsAppMessageProcessor
             Sender = message.Sender,
             Text = MessageTextSanitizer.ReplaceLinksForSpeech(message.Text),
             Date = message.Date,
-            IsRead = false
+            ReceivedAt = message.Date,
+            IsRead = isRead
         };
     }
 

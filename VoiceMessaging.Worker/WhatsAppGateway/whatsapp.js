@@ -260,6 +260,35 @@ async function getUnreadMessages() {
     return unreadMessages;
 }
 
+async function getRecentMessages(chatIds, count = 5) {
+    if (!connected) {
+        const error = new Error("WhatsApp no está conectado.");
+        error.statusCode = 503;
+        throw error;
+    }
+
+    const requestedChatIds = [...new Set((chatIds || []).filter(Boolean))];
+    const messageLimit = Math.min(Math.max(Number(count) || 5, 1), 5);
+    const recentMessages = [];
+
+    for (const chatId of requestedChatIds) {
+        try {
+            const chat = await client.getChatById(chatId);
+            const chatMessages = await chat.fetchMessages({ limit: messageLimit * 10 });
+            const incomingMessages = chatMessages.filter(isSupportedIncomingMessage).slice(-messageLimit);
+
+            for (const message of incomingMessages) {
+                recentMessages.push(await createIncomingMessage(message, chat.name || chatId));
+            }
+        } catch (error) {
+            console.error(`Error al recuperar mensajes recientes de ${chatId}:`);
+            console.error(error);
+        }
+    }
+
+    return recentMessages;
+}
+
 async function markChatAsRead(chatId) {
     if (!connected)
         throw new Error("WhatsApp no está conectado.");
@@ -475,6 +504,7 @@ module.exports = {
     sendMessage,
     getPendingMessages,
     getUnreadMessages,
+    getRecentMessages,
     getContacts,
     markChatAsRead,
     logout,

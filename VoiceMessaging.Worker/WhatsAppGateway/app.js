@@ -529,6 +529,25 @@ app.get("/whatsapp/unread-messages", async (req, res) => {
     }
 });
 
+app.post("/whatsapp/recent-messages", async (req, res) => {
+    try {
+        const { chatIds, count } = req.body ?? {};
+
+        if (!Array.isArray(chatIds))
+            return res.status(400).json({ success: false, error: "La lista de chats es obligatoria." });
+
+        const messages = await whatsapp.getRecentMessages(chatIds, count);
+        res.json(messages);
+    } catch (error) {
+        if (error.statusCode === 503 || error.message === "WhatsApp no está conectado.")
+            return res.status(503).json({ success: false, error: error.message });
+
+        console.error("Error al consultar mensajes recientes:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post("/whatsapp/mark-read", async (req, res) => {
     try {
         const { chatId } = req.body ?? {};

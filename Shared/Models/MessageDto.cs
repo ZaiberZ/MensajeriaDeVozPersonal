@@ -36,6 +36,12 @@ public class MessageDto
     [JsonPropertyName("date")]
     public DateTime Date { get; set; } = AlexaSkillWhatsApp.Services.AppClock.Now;
 
+    [JsonPropertyName("receivedAt")]
+    public DateTime? ReceivedAt { get; set; }
+
+    [JsonPropertyName("readAt")]
+    public DateTime? ReadAt { get; set; }
+
     [JsonPropertyName("isRead")]
     public bool IsRead { get; set; }
 }
