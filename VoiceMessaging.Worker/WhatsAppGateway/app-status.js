@@ -74,7 +74,7 @@ const renderErrorLogs = logs => {
 
         const message = document.createElement("p");
         message.className = "log-message";
-        message.textContent = log.message || "Error sin detalle.";
+        message.textContent = log.message || "Log sin detalle.";
 
         entry.append(meta, message);
         list.append(entry);
@@ -83,14 +83,14 @@ const renderErrorLogs = logs => {
 
 async function refreshErrorLogs() {
     try {
-        const response = await fetch("/logs?level=error&limit=10", { cache: "no-store" });
+        const response = await fetch("/logs?level=error,warning&limit=10", { cache: "no-store" });
         if (!response.ok)
             throw new Error("HTTP " + response.status);
 
         const result = await response.json();
         renderErrorLogs(Array.isArray(result.logs) ? result.logs.slice(0, 10) : []);
     } catch (error) {
-        console.error("No fue posible consultar los logs de error:", error);
+        console.error("No fue posible consultar los logs de error y advertencia:", error);
     }
 }
 

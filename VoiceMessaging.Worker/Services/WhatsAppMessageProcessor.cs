@@ -172,11 +172,16 @@ public class WhatsAppMessageProcessor
                 .Where(contact => string.Equals(contact.Source, "WhatsApp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(contact.ChatId))
                 .Select(contact => contact.ChatId).Distinct().ToList();
 
-            if (chatIds.Count == 0)                return true;
+            if (chatIds.Count == 0)
+                return true;
 
             var recentMessages = await _whatsApp.GetRecentMessagesAsync(chatIds, 5);
 
-            if (recentMessages == null)                return false;
+            if (recentMessages == null)
+            {
+                _logger.LogInformation("Sincronización de favoritos aplazada porque WhatsApp todavía no está conectado. Se volverá a intentar más tarde.");
+                return false;
+            }
 
             var firebaseMessages = await _firebase.GetAllMessagesAsync();
             var addedMessages = 0;
@@ -194,6 +199,20 @@ public class WhatsAppMessageProcessor
 
             _logger.LogInformation("Sincronización de favoritos completada. Mensajes históricos agregados: {added}.", addedMessages);
             return true;
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is null)
+        {
+            _logger.LogWarning("Sincronización de favoritos aplazada por falta temporal de conexión: {message}", ex.Message);
+            return false;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning("Sincronización de favoritos aplazada porque la consulta excedió el tiempo de espera: {message}", ex.Message);
+            return false;
         }
         catch (Exception ex)
         {

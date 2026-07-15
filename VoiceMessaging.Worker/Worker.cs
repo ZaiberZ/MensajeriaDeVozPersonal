@@ -13,6 +13,8 @@ public class Worker : BackgroundService
 {
     private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
     private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan FavoriteMessagesSyncInterval = TimeSpan.FromHours(4);
+    private static readonly TimeSpan FavoriteMessagesSyncRetryInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(50);
     private static readonly TimeSpan StartupReadinessCheckInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InternetConnectionRetryInterval = TimeSpan.FromSeconds(15);
@@ -90,7 +92,8 @@ public class Worker : BackgroundService
         var initialReadReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
         var initialFavoriteSyncCompleted = await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
-        var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted && initialFavoriteSyncCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
+        var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
+        var nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(initialFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
         var nextAirbnbCheckAt = DateTime.UtcNow;
         var nextErrorLogReportCheckAt = DateTime.UtcNow;
         while (!stoppingToken.IsCancellationRequested)
@@ -108,7 +111,8 @@ public class Worker : BackgroundService
                 await RegisterWorkerLogAsync("warning", "WhatsAppGateway dejó de responder y fue reiniciado por el Worker.", stoppingToken);
                 var restartReadReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
                 var restartFavoriteSyncCompleted = await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
-                nextReadReconciliationAt = DateTime.UtcNow.Add(restartReadReconciliationCompleted && restartFavoriteSyncCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
+                nextReadReconciliationAt = DateTime.UtcNow.Add(restartReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
+                nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(restartFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
             }
 
             if (DateTime.UtcNow >= nextErrorLogReportCheckAt)
@@ -120,8 +124,13 @@ public class Worker : BackgroundService
             if (DateTime.UtcNow >= nextReadReconciliationAt)
             {
                 var readReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
+                nextReadReconciliationAt = DateTime.UtcNow.Add(readReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
+            }
+
+            if (DateTime.UtcNow >= nextFavoriteMessagesSyncAt)
+            {
                 var favoriteSyncCompleted = await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
-                nextReadReconciliationAt = DateTime.UtcNow.Add(readReconciliationCompleted && favoriteSyncCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
+                nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(favoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
             }
 
             if (airbnbGatewayEnabled && DateTime.UtcNow >= nextAirbnbCheckAt)

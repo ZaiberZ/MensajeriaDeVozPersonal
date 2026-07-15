@@ -261,10 +261,19 @@ async function getUnreadMessages() {
 }
 
 async function getRecentMessages(chatIds, count = 5) {
-    if (!connected) {
-        const error = new Error("WhatsApp no está conectado.");
-        error.statusCode = 503;
-        throw error;
+    if (!connected)
+        throw createWhatsAppUnavailableError();
+
+    try {
+        const state = await client.getState();
+
+        if (state !== "CONNECTED")
+            throw createWhatsAppUnavailableError();
+    } catch (error) {
+        if (error.statusCode === 503)
+            throw error;
+
+        throw createWhatsAppUnavailableError();
     }
 
     const requestedChatIds = [...new Set((chatIds || []).filter(Boolean))];
@@ -281,12 +290,17 @@ async function getRecentMessages(chatIds, count = 5) {
                 recentMessages.push(await createIncomingMessage(message, chat.name || chatId));
             }
         } catch (error) {
-            console.error(`Error al recuperar mensajes recientes de ${chatId}:`);
-            console.error(error);
+            throw createWhatsAppUnavailableError();
         }
     }
 
     return recentMessages;
+}
+
+function createWhatsAppUnavailableError() {
+    const error = new Error("WhatsApp no está disponible temporalmente.");
+    error.statusCode = 503;
+    return error;
 }
 
 async function markChatAsRead(chatId) {

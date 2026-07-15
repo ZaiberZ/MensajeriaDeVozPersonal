@@ -157,9 +157,9 @@ function installConsoleCapture() {
 }
 
 function getLogs(level, limit = 200) {
-    const normalizedLevel = level?.toLowerCase();
+    const normalizedLevels = level?.toLowerCase().split(",").map(value => value.trim()).filter(Boolean);
     const logs = readLogs();
-    const filteredLogs = normalizedLevel ? logs.filter(log => log.level === normalizedLevel) : logs;
+    const filteredLogs = normalizedLevels?.length ? logs.filter(log => normalizedLevels.includes(log.level)) : logs;
 
     return filteredLogs.slice(-limit).reverse();
 }
