@@ -1,223 +1,185 @@
-# Voice Messaging Hub (MVP)
+# Voice Messaging Hub
 
-## Descripción
+Voice Messaging Hub es un proyecto de accesibilidad que permite leer y responder mensajes de WhatsApp mediante Alexa. También puede incorporar notificaciones de Airbnb recibidas por Gmail al mismo flujo de lectura.
 
-Voice Messaging Hub es un proyecto personal cuyo objetivo es permitir que una persona con discapacidad visual pueda leer y responder mensajes de WhatsApp completamente mediante comandos de voz utilizando Alexa.
+El sistema usa Firebase Realtime Database como punto de intercambio entre la skill de Alexa y un Worker de Windows. El Worker administra un gateway local de Node.js que se conecta con WhatsApp Web y Gmail.
 
-El proyecto funciona como un intermediario entre Alexa y WhatsApp. Alexa nunca se comunica directamente con WhatsApp; toda la comunicación se realiza a través de Firebase Realtime Database y un Worker Service.
+## Funcionalidades actuales
 
-Actualmente el proyecto se encuentra en fase **MVP (Minimum Viable Product)**, por lo que se prioriza la simplicidad, la rapidez de desarrollo y un flujo completamente funcional antes que una arquitectura compleja.
+- Registro del usuario desde Alexa o desde la interfaz local.
+- Lectura de mensajes pendientes agrupados por conversación.
+- Navegación, repetición y marcado de conversaciones como leídas.
+- Dictado y confirmación de respuestas antes de enviarlas.
+- Envío de mensajes nuevos a contactos frecuentes.
+- Consulta de mensajes recientes de contactos frecuentes.
+- Sincronización de mensajes no leídos después de una desconexión.
+- Persistencia de la sesión de WhatsApp Web.
+- Selección y administración de contactos frecuentes.
+- Lectura de notificaciones de Airbnb obtenidas desde Gmail.
+- Estado operativo del Worker, WhatsApp, Gmail y Firebase.
+- Registro de errores y reporte diario al teléfono de soporte configurado.
 
----
-
-# Arquitectura
+## Arquitectura
 
 ```text
-Usuario
-    │
-    ▼
 Alexa
-    │
+  |
+  v
 AWS Lambda (.NET 8)
-    │
+  |
+  v
 Firebase Realtime Database
-    │
+  |
+  v
 Worker Service (.NET 8)
-    │
-WhatsApp Gateway (Node.js + whatsapp-web.js)
-    │
-WhatsApp
+  |
+  v
+Gateway local (Node.js + Express)
+  |                     |
+  v                     v
+WhatsApp Web           Gmail / Airbnb
 ```
 
----
+Alexa no se conecta directamente con WhatsApp. La skill lee y escribe datos en Firebase; el Worker sincroniza esos datos con el gateway local.
 
-# Objetivos del proyecto
-
-* Leer mensajes de WhatsApp utilizando Alexa.
-* Responder mensajes completamente por voz.
-* Mantener una conversación natural mediante comandos de voz.
-* Facilitar el uso de WhatsApp a personas con discapacidad visual.
-
----
-
-# Estado actual
-
-Actualmente el MVP permite:
-
-* Apertura de la Skill de Alexa.
-* Lectura de mensajes pendientes desde Firebase.
-* Agrupación de mensajes por conversación.
-* Navegación entre conversaciones.
-* Repetir la conversación actual.
-* Responder mensajes mediante voz.
-* Confirmar el envío de respuestas.
-* Guardar respuestas en Firebase.
-* Envío automático de respuestas mediante el Worker.
-* Recepción automática de mensajes desde WhatsApp.
-* Persistencia de la sesión de WhatsApp.
-* Comunicación entre Worker y WhatsApp mediante una API local.
-* Lectura MVP de notificaciones de Airbnb desde Gmail para registrarlas como mensajes pendientes.
-
-Nota importante: una vez autenticado y probado el flujo, el usuario final no debería tener contacto con el equipo para operar el sistema.
-
----
-
-# Tecnologías utilizadas
-
-## Backend
-
-* .NET 8
-* Worker Service
-* AWS Lambda
-* Alexa Skills Kit
-* Firebase Realtime Database
-* HttpClient
-* System.Text.Json
-
-## WhatsApp
-
-* Node.js
-* Express
-* whatsapp-web.js
-* Puppeteer
-* QRCode
-
-## Instalación
-
-* Inno Setup 6
-
----
-
-# Filosofía del proyecto
-
-Este proyecto está desarrollado siguiendo una filosofía **MVP**.
-
-Se prioriza:
-
-* Código sencillo.
-* Pocas clases.
-* Reutilización del código existente.
-* Fácil mantenimiento.
-* Desarrollo incremental.
-* Funcionalidad antes que perfección.
-
-Por el momento se evita implementar arquitecturas complejas como:
-
-* Clean Architecture
-* CQRS
-* DDD
-* MediatR
-* Microservicios
-* Patrones innecesarios
-
-La idea es contar primero con un sistema completamente funcional y posteriormente refactorizar donde realmente sea necesario.
-
----
-
-# Estructura de la solución
+## Estructura del repositorio
 
 ```text
-AlexaSkillWhatsApp.sln
-
-├── AlexaSkillWhatsApp
-│   AWS Lambda
-│
-├── VoiceMessaging.Worker
-│   Worker Service
-│
-├── AlexaSkillWhatsApp.Shared
-│   Modelos y servicios compartidos
-│
-└── WhatsAppGateway
-    Node.js + Express + whatsapp-web.js
+AlexaSkillWhatsApp/                 Skill de Alexa para AWS Lambda
+Shared/                             Modelos, configuración y servicios compartidos
+VoiceMessaging.Worker/              Servicio de Windows y procesos de sincronización
+VoiceMessaging.Worker/WhatsAppGateway/
+                                    API local, WhatsApp Web, Gmail e interfaces web
+Installer/                          Instalador de Inno Setup
+Skill_VoiceMessage.json             Modelo de interacción de Alexa en español
+Mensajería de Voz Personal.slnx     Solución de .NET
+build-installer.bat                 Publicación y compilación del instalador
 ```
 
----
+## Requisitos de desarrollo
 
-# Requisitos de desarrollo
+- Windows 10 u 11.
+- .NET 8 SDK.
+- Node.js 20 LTS o superior.
+- Visual Studio 2022 o un editor compatible con .NET.
+- AWS CLI y `Amazon.Lambda.Tools` para desplegar la skill.
+- Inno Setup 6 para generar el instalador.
+- Un proyecto de Firebase Realtime Database.
+- Una cuenta de desarrollador de Amazon Alexa.
+- Credenciales OAuth de Google si se habilitará la integración con Gmail.
 
-Antes de compilar el proyecto es necesario instalar:
+Instala la herramienta de despliegue de Lambda si todavía no está disponible:
 
-## Software requerido
+```powershell
+dotnet tool install -g Amazon.Lambda.Tools
+```
 
-* Visual Studio 2022 (con soporte para .NET 8)
-* .NET 8 SDK
-* Node.js 20 LTS o superior
-* Inno Setup 6
-* Git
+## Configuración
 
----
+### Firebase y usuario
 
-# Dependencias de Node.js
+La URL de Firebase usada por los componentes compartidos se encuentra en `Shared/Settings/FirebaseSettings.cs`. El gateway usa además `VoiceMessaging.Worker/WhatsAppGateway/gateway-config.json`.
 
-Dentro del proyecto **WhatsAppGateway** instalar:
+El usuario puede registrarse desde Alexa o desde la página local de autenticación de WhatsApp. El número telefónico identifica su rama de datos en Firebase.
 
-* express
-* whatsapp-web.js
-* qrcode
-* cors
-* nodemon
+### Skill de Alexa
 
-Instalación:
+1. Importa `Skill_VoiceMessage.json` en la consola de Alexa Developer.
+2. Configura el endpoint con el ARN de la función Lambda.
+3. Compila el modelo de interacción.
+4. En Lambda, configura las variables de entorno requeridas por el usuario alternativo cuando corresponda: `VOICE_MESSAGING_PHONE`, `VOICE_MESSAGING_FULL_NAME` y `VOICE_MESSAGING_EMAIL`.
 
-```bash
+### Gmail y Airbnb
+
+La integración de Airbnb procesa correos de Gmail. Para habilitarla:
+
+1. Crea credenciales OAuth para una aplicación web en Google Cloud.
+2. Registra `http://localhost:3000/gmail/callback` como URI de redirección.
+3. Completa `VoiceMessaging.Worker/WhatsAppGateway/gmail-config.json`.
+4. Inicia sesión desde la página de estado local.
+5. Activa Airbnb desde esa misma página.
+
+No publiques credenciales, tokens ni carpetas de autenticación en el repositorio.
+
+## Ejecución local
+
+Restaura y compila los proyectos .NET:
+
+```powershell
+dotnet restore "Mensajería de Voz Personal.slnx"
+dotnet build "Mensajería de Voz Personal.slnx"
+```
+
+Instala las dependencias e inicia el gateway:
+
+```powershell
+cd VoiceMessaging.Worker\WhatsAppGateway
 npm install
+npm start
 ```
 
----
+En otra terminal, inicia el Worker con la configuración de desarrollo:
 
-# Compilar el proyecto
+```powershell
+$env:DOTNET_ENVIRONMENT = "Development"
+dotnet run --project VoiceMessaging.Worker\VoiceMessaging.Worker.csproj
+```
 
-## Publicar AlexaSkill
+El gateway escucha en `http://localhost:3000`. Las principales interfaces locales son:
 
-```bash
+- Estado general: `http://localhost:3000/app-status`
+- Autenticación de WhatsApp y datos del usuario: `http://localhost:3000/whatsapp/qr`
+- Contactos frecuentes: `http://localhost:3000/contacts`
+
+La primera ejecución requiere escanear el código QR de WhatsApp. La sesión se conserva para los siguientes inicios.
+
+## Despliegue de la skill
+
+Desde la carpeta del proyecto Lambda:
+
+```powershell
+cd AlexaSkillWhatsApp
 dotnet lambda deploy-function AlexaSkillWhatsApp
-
--- dotnet publish -c Release -o ./publish
 ```
 
+Después del despliegue, actualiza el endpoint de la skill si el ARN cambió.
 
-## Worker
+## Publicación del Worker
 
-```bash
-dotnet publish -c Release -r win-x64 --self-contained true
+```powershell
+dotnet publish VoiceMessaging.Worker\VoiceMessaging.Worker.csproj `
+  -c Release `
+  -r win-x64 `
+  --self-contained true
 ```
 
-## WhatsApp Gateway
+El proyecto del Worker incluye los archivos necesarios del gateway en su salida. `node_modules`, sesiones, cachés y datos locales se excluyen de la publicación.
 
-```bash
-npm install
-npm run dev
+## Instalador de Windows
+
+El instalador se define en `Installer/VoiceMessagingInstaller.iss`. Instala el Worker como el servicio de Windows `VoiceMessagingWorker`, prepara las dependencias del gateway y abre la página de autenticación de WhatsApp al finalizar.
+
+Para generar el instalador, revisa primero las rutas locales `OUTPUT_DIR` e `INNO_COMPILER` de `build-installer.bat` y luego ejecútalo:
+
+```powershell
+.\build-installer.bat
 ```
 
----
+La instalación requiere privilegios de administrador y Node.js 20 LTS o superior. Los datos persistentes del gateway se guardan fuera de la carpeta de instalación para sobrevivir a reinstalaciones.
 
-# Instalación
+## Comprobaciones rápidas
 
-El proyecto utiliza **Inno Setup 6** para generar el instalador.
+```powershell
+dotnet build "Mensajería de Voz Personal.slnx" --no-restore
+node --check VoiceMessaging.Worker\WhatsAppGateway\app.js
+node --check VoiceMessaging.Worker\WhatsAppGateway\whatsapp.js
+Get-Content Skill_VoiceMessage.json | ConvertFrom-Json | Out-Null
+```
 
-El instalador:
+## Enfoque del proyecto
 
-* Copia el Worker.
-* Copia el WhatsApp Gateway.
-* Registra el Worker como Servicio de Windows.
-* Configura el inicio automático del servicio.
+El proyecto sigue siendo un MVP enfocado en accesibilidad y funcionamiento de extremo a extremo. Se favorecen cambios pequeños, código directo y reutilización de los componentes existentes antes de introducir capas o patrones adicionales.
 
----
+## Licencia
 
-# Próximas funcionalidades
-
-* Múltiples cuentas de WhatsApp.
-* Mensajes de voz.
-* Conversión de audio a texto.
-* Lectura de notas de voz.
-* Integración con Airbnb.
-* Sincronización avanzada.
-* Notificaciones de nuevos mensajes.
-* Empaquetado del WhatsApp Gateway como ejecutable.
-
----
-
-# Licencia
-
-Proyecto personal desarrollado con fines educativos y de apoyo a la accesibilidad mediante asistentes de voz.
+Proyecto personal desarrollado con fines educativos y de apoyo a la accesibilidad mediante asistentes de voz. Consulta `LICENSE.txt` para conocer los términos aplicables.
