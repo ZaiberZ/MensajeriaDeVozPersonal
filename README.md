@@ -74,32 +74,45 @@ Instala la herramienta de despliegue de Lambda si todavía no está disponible:
 dotnet tool install -g Amazon.Lambda.Tools
 ```
 
-## Configuración
+## Después de clonar
 
-### Firebase y usuario
+Cada clon debe usar servicios y credenciales propios. La creación y configuración detallada de Firebase, Gmail, AWS Lambda y Alexa Developer Console está en [FIREBASE_AUTH_SETUP.md](FIREBASE_AUTH_SETUP.md).
 
-La URL de Firebase usada por los componentes compartidos se encuentra en `Shared/Settings/FirebaseSettings.cs`. El gateway usa además `VoiceMessaging.Worker/WhatsAppGateway/gateway-config.json`.
+Después de clonar, crea el archivo privado de configuración:
 
-El usuario puede registrarse desde Alexa o desde la página local de autenticación de WhatsApp. El número telefónico identifica su rama de datos en Firebase.
+```powershell
+Copy-Item .env.example .env.local
+notepad .env.local
+```
 
-### Skill de Alexa
+Completa las cuatro variables de Firebase. Las tres variables de Gmail son opcionales. `.env.local` está excluido por `.gitignore`; nunca lo agregues con `git add -f`.
 
-1. Importa `Skill_VoiceMessage.json` en la consola de Alexa Developer.
-2. Configura el endpoint con el ARN de la función Lambda.
-3. Compila el modelo de interacción.
-4. En Lambda, configura las variables de entorno requeridas por el usuario alternativo cuando corresponda: `VOICE_MESSAGING_PHONE`, `VOICE_MESSAGING_FULL_NAME` y `VOICE_MESSAGING_EMAIL`.
+Prepara las dependencias:
 
-### Gmail y Airbnb
+```powershell
+dotnet restore "Mensajería de Voz Personal.slnx"
+cd VoiceMessaging.Worker\WhatsAppGateway
+npm install
+cd ..\..
+```
 
-La integración de Airbnb procesa correos de Gmail. Para habilitarla:
+Inicia el Worker:
 
-1. Crea credenciales OAuth para una aplicación web en Google Cloud.
-2. Registra `http://localhost:3000/gmail/callback` como URI de redirección.
-3. Completa `VoiceMessaging.Worker/WhatsAppGateway/gmail-config.json`.
-4. Inicia sesión desde la página de estado local.
-5. Activa Airbnb desde esa misma página.
+```powershell
+$env:DOTNET_ENVIRONMENT = "Development"
+dotnet run --project VoiceMessaging.Worker\VoiceMessaging.Worker.csproj
+```
 
-No publiques credenciales, tokens ni carpetas de autenticación en el repositorio.
+Para una prueba completa:
+
+1. Publica primero las reglas y verifica la cuenta técnica de Firebase.
+2. Ejecuta el Worker desde la raíz con `dotnet run --project VoiceMessaging.Worker\VoiceMessaging.Worker.csproj`.
+3. Abre `http://localhost:3000/whatsapp/qr`, registra los datos del usuario y escanea el QR.
+4. Revisa `http://localhost:3000/app-status` y confirma que Worker, WhatsApp y Firebase responden.
+5. Si habilitaste Gmail, inicia OAuth desde la página de estado y prueba una sincronización.
+6. Despliega y configura Lambda y la skill siguiendo [FIREBASE_AUTH_SETUP.md](FIREBASE_AUTH_SETUP.md#4-configurar-aws-lambda).
+7. Ejecuta `ConfigurarTelefonoIntent` con el mismo teléfono registrado en el Worker.
+8. Confirma el teléfono y prueba lectura, navegación y respuesta de mensajes.
 
 ## Ejecución local
 
@@ -159,11 +172,15 @@ El proyecto del Worker incluye los archivos necesarios del gateway en su salida.
 
 El instalador se define en `Installer/VoiceMessagingInstaller.iss`. Instala el Worker como el servicio de Windows `VoiceMessagingWorker`, prepara las dependencias del gateway y abre la página de autenticación de WhatsApp al finalizar.
 
-Para generar el instalador, revisa primero las rutas locales `OUTPUT_DIR` e `INNO_COMPILER` de `build-installer.bat` y luego ejecútalo:
+Para generar el instalador, completa primero `.env.local`, revisa las rutas locales `OUTPUT_DIR` e `INNO_COMPILER` de `build-installer.bat` y luego ejecútalo:
 
 ```powershell
 .\build-installer.bat
 ```
+
+`build-installer.bat` detiene la compilación si `.env.local` no existe. Inno Setup incorpora ese archivo dentro del instalador y lo instala automáticamente como `C:\ProgramData\VoiceMessaging\environment.env`, protegido para `SYSTEM` y administradores. El usuario final no tiene que volver a capturar las variables en cada instalación o reinstalación.
+
+El instalador generado contiene las credenciales del clon que lo compiló. Trátalo como un artefacto privado: no lo publiques en GitHub Releases ni lo compartas con personas que no deban usar esa instancia de Firebase y Gmail.
 
 La instalación requiere privilegios de administrador y Node.js 20 LTS o superior. Los datos persistentes del gateway se guardan fuera de la carpeta de instalación para sobrevivir a reinstalaciones.
 

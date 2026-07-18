@@ -11,7 +11,16 @@ set GATEWAY_DIR=%SOLUTION_DIR%WhatsAppGateway
 set OUTPUT_DIR=D:\Publish
 set PUBLISH_DIR=%OUTPUT_DIR%\VoiceMessaging
 set INSTALLER_SCRIPT=%SOLUTION_DIR%Installer\VoiceMessagingInstaller.iss
+set ENVIRONMENT_FILE=%SOLUTION_DIR%.env.local
 set INNO_COMPILER=C:\Users\cator\AppData\Local\Programs\Inno Setup 6\ISCC.exe
+
+if not exist "%ENVIRONMENT_FILE%" (
+    echo.
+    echo Error: no existe "%ENVIRONMENT_FILE%".
+    echo Copie .env.example como .env.local y complete sus variables antes de generar el instalador.
+    pause
+    exit /b 1
+)
 
 echo.
 echo Limpiando carpeta publish...
@@ -52,7 +61,7 @@ if exist "%PUBLISH_DIR%\WhatsAppGateway\node_modules" rmdir /S /Q "%PUBLISH_DIR%
 
 echo.
 echo Compilando instalador...
-"%INNO_COMPILER%" "%INSTALLER_SCRIPT%"
+"%INNO_COMPILER%" "/DEnvironmentFile=%ENVIRONMENT_FILE%" "%INSTALLER_SCRIPT%"
 
 if errorlevel 1 (
     echo Error compilando instalador.

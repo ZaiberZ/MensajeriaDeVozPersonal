@@ -371,6 +371,8 @@ FodyWeavers.xsd
 /VoiceMessaging.Worker/WhatsAppGateway/gmail-config.local.json
 /VoiceMessaging.Worker/WhatsAppGateway/gmail-token.json
 /VoiceMessaging.Worker/WhatsAppGateway/gmail-airbnb-processed.json
+**/.env.local
+**/environment.env
 AGENTS.md
 installer-check/VoiceMessagingInstaller.exe
 REPORTE_CAMBIOS_AIRBNB.md

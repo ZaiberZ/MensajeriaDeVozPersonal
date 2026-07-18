@@ -20,7 +20,7 @@ public class FirebaseService
         if (string.IsNullOrWhiteSpace(user.Phone))
             throw new ArgumentException("El usuario debe tener un teléfono.", nameof(user));
 
-        _httpClient = new HttpClient();
+        _httpClient = FirebaseHttpClient.Create();
         _user = user;
         _userId = new string(user.Phone.Where(char.IsDigit).ToArray());
 

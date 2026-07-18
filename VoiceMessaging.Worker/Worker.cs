@@ -272,7 +272,7 @@ public class Worker : BackgroundService
         if (string.IsNullOrWhiteSpace(userId))
             throw new InvalidOperationException("No se puede registrar el inicio del Worker porque el usuario no tiene un teléfono válido.");
 
-        using var httpClient = new HttpClient();
+        using var httpClient = FirebaseHttpClient.Create();
         var response = await httpClient.PutAsJsonAsync($"{FirebaseSettings.User(userId)}/control/last_worker_started_at.json", AppClock.Now, stoppingToken);
         response.EnsureSuccessStatusCode();
     }

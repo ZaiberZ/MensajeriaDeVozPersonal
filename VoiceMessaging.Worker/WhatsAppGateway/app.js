@@ -3,6 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const cors = require("cors");
+const { firebaseBaseUrl, firebaseFetch } = require("./firebase-client");
 
 const logger = require("./logger");
 logger.installConsoleCapture();
@@ -17,7 +18,6 @@ const workerStatus = {
 };
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
 const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000; // 1 hr
-const firebaseBaseUrl = "https://voicemessaginghub-default-rtdb.firebaseio.com";
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
 const pendingAirbnbNotificationPath = path.join(dataDirectory, "pending-airbnb-notification.json");
@@ -124,7 +124,7 @@ async function readAirbnbEnabled() {
         return false;
 
     try {
-        const response = await fetch(airbnbEnabledPath(phone), { signal: AbortSignal.timeout(5000) });
+        const response = await firebaseFetch(airbnbEnabledPath(phone), { signal: AbortSignal.timeout(5000) });
 
         if (!response.ok)
             throw new Error(`Firebase respondió HTTP ${response.status}.`);
@@ -139,7 +139,7 @@ async function readAirbnbEnabled() {
 
 async function writeAirbnbEnabled(enabled) {
     const phone = requireCurrentUserPhone();
-    const response = await fetch(airbnbEnabledPath(phone), {
+    const response = await firebaseFetch(airbnbEnabledPath(phone), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(enabled === true),
@@ -292,7 +292,7 @@ app.get("/contacts/whatsapp", async (req, res) => {
 app.get("/contacts/frequent", async (req, res) => {
     try {
         const phone = requireCurrentUserPhone();
-        const response = await fetch(`${frequentContactsPath(phone)}.json`);
+        const response = await firebaseFetch(`${frequentContactsPath(phone)}.json`);
 
         if (!response.ok)
             throw new Error(`Firebase respondió ${response.status}.`);
@@ -323,7 +323,7 @@ app.post("/contacts/frequent", async (req, res) => {
         if (!contact.name || !contact.chatId)
             return res.status(400).json({ success: false, error: "El contacto necesita nombre y chatId." });
 
-        const response = await fetch(`${frequentContactsPath(phone)}/${id}.json`, {
+        const response = await firebaseFetch(`${frequentContactsPath(phone)}/${id}.json`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(contact)
@@ -348,7 +348,7 @@ app.delete("/contacts/frequent/:id", async (req, res) => {
         if (!id)
             return res.status(400).json({ success: false, error: "El id del contacto es obligatorio." });
 
-        const response = await fetch(`${frequentContactsPath(phone)}/${id}.json`, { method: "DELETE" });
+        const response = await firebaseFetch(`${frequentContactsPath(phone)}/${id}.json`, { method: "DELETE" });
 
         if (!response.ok)
             throw new Error(`Firebase respondió ${response.status}.`);

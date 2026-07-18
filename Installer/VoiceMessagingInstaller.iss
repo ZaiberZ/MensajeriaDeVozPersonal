@@ -6,6 +6,10 @@
   #define InstallerSource "D:\Publish\VoiceMessaging\*"
 #endif
 
+#ifndef EnvironmentFile
+  #define EnvironmentFile "..\.env.local"
+#endif
+
 [Setup]
 AppName=Voice Messaging
 AppVersion=1.0
@@ -21,6 +25,7 @@ PrivilegesRequired=admin
 Source: "{#InstallerSource}"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 Source: "AlexaWhatsApp.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Install Gateway Dependencies.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#EnvironmentFile}"; DestDir: "{commonappdata}\VoiceMessaging"; DestName: "environment.env"; Flags: ignoreversion
 
 [Dirs]
 Name: "{commonappdata}\VoiceMessaging"; Permissions: users-modify
@@ -42,6 +47,7 @@ Root: HKCR; Subkey: "voicemessaging-airbnb\shell\open\command"; ValueType: strin
 [Run]
 Filename: "{cmd}"; Parameters: "/C """"{app}\Install Gateway Dependencies.bat"" ""{app}\WhatsAppGateway"""""; WorkingDir: "{app}\WhatsAppGateway"; StatusMsg: "Instalando dependencias del Gateway..."; Flags: waituntilterminated
 ;Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\VoiceMessaging"" /grant *S-1-5-32-545:(OI)(CI)M /C"; Flags: runhidden waituntilterminated
+Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\VoiceMessaging\environment.env"" /inheritance:r /grant:r *S-1-5-18:F *S-1-5-32-544:F"; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "create VoiceMessagingWorker binPath= ""{app}\VoiceMessaging.Worker.exe"" start= auto"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhidden
 

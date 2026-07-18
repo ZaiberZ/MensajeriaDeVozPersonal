@@ -1,5 +1,4 @@
 {
-  "FirebaseBaseUrl": "https://voicemessaginghub-default-rtdb.firebaseio.com",
   "Airbnb": {
     "Enabled": true,
     "Headless": false,

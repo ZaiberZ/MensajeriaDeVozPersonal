@@ -1,7 +1,7 @@
 using VoiceMessaging.Worker;
 using AlexaSkillWhatsApp.Services;
 
-
+EnvironmentFileLoader.Load();
 var builder = Host.CreateApplicationBuilder(args);
 AppClock.Configure(builder.Configuration["TimeZone:Id"]);
 

@@ -3,6 +3,7 @@ const os = require("os");
 const path = require("path");
 const puppeteer = require("puppeteer");
 const config = require("./gateway-config.json");
+const { firebaseBaseUrl, firebaseFetch } = require("./firebase-client");
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const sessionPath = path.join(dataRoot, "VoiceMessaging", "airbnb-auth");
@@ -35,7 +36,7 @@ function getEnabledUrl() {
     if (!userId)
         return null;
 
-    return `${config.FirebaseBaseUrl}/usuarios/${userId}/configuracion/airbnb/enabled.json`;
+    return `${firebaseBaseUrl}/usuarios/${userId}/configuracion/airbnb/enabled.json`;
 }
 
 async function isAirbnbEnabled() {
@@ -45,7 +46,7 @@ async function isAirbnbEnabled() {
         return false;
 
     try {
-        const response = await fetch(enabledUrl, { signal: AbortSignal.timeout(5000) });
+        const response = await firebaseFetch(enabledUrl, { signal: AbortSignal.timeout(5000) });
 
         if (!response.ok)
             throw new Error(`Firebase respondió HTTP ${response.status}.`);
@@ -69,7 +70,7 @@ async function writeAirbnbEnabled(enabled) {
     if (!enabledUrl)
         throw new Error("Registra primero el teléfono del usuario.");
 
-    const response = await fetch(enabledUrl, {
+    const response = await firebaseFetch(enabledUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(enabled === true),

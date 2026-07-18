@@ -7,7 +7,7 @@ namespace AlexaSkillWhatsApp.Services;
 
 public class AlexaUserPhoneService
 {
-    private readonly HttpClient _httpClient = new();
+    private readonly HttpClient _httpClient = FirebaseHttpClient.Create();
 
     public async Task<string?> GetPhoneAsync(string alexaUserId)
     {

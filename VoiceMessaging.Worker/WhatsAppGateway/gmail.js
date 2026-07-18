@@ -2,7 +2,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { google } = require("googleapis");
-const config = require("./gateway-config.json");
+const { firebaseBaseUrl, firebaseFetch } = require("./firebase-client");
+require("./environment");
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
@@ -12,7 +13,6 @@ const localGmailConfigPath = path.join(__dirname, "gmail-config.local.json");
 const defaultTokenFileName = "gmail-token.json";
 const processedFilePath = path.join(dataDirectory, "gmail-airbnb-processed.json");
 const gmailScopes = ["https://www.googleapis.com/auth/gmail.readonly"];
-const firebaseBaseUrl = config.FirebaseBaseUrl || "https://voicemessaginghub-default-rtdb.firebaseio.com";
 
 let getUser = () => null;
 
@@ -42,9 +42,9 @@ function getGmailConfig() {
 
     const gmailConfig = {
         enabled: gmail.enabled !== false,
-        clientId: gmail.clientId || "",
-        clientSecret: gmail.clientSecret || "",
-        redirectUri: gmail.redirectUri || "http://localhost:3000/gmail/callback",
+        clientId: process.env.VOICE_MESSAGING_GMAIL_CLIENT_ID || gmail.clientId || "",
+        clientSecret: process.env.VOICE_MESSAGING_GMAIL_CLIENT_SECRET || gmail.clientSecret || "",
+        redirectUri: process.env.VOICE_MESSAGING_GMAIL_REDIRECT_URI || gmail.redirectUri || "http://localhost:3000/gmail/callback",
         tokenPath: gmail.tokenPath || defaultTokenFileName
     };
 
@@ -62,7 +62,7 @@ function createOAuthClient() {
     const gmailConfig = getGmailConfig();
 
     if (!gmailConfig.clientId || !gmailConfig.clientSecret)
-        throw new Error("Configura clientId y clientSecret en WhatsAppGateway/gmail-config.json o gmail-config.local.json.");
+        throw new Error("Configura VOICE_MESSAGING_GMAIL_CLIENT_ID y VOICE_MESSAGING_GMAIL_CLIENT_SECRET.");
 
     return new google.auth.OAuth2(gmailConfig.clientId, gmailConfig.clientSecret, gmailConfig.redirectUri);
 }
@@ -439,7 +439,7 @@ async function saveMessageToFirebase(phone, message) {
         Date: message.date,
         IsRead: false
     };
-    const response = await fetch(`${firebaseBaseUrl}/usuarios/${phone}/mensajes_pendientes.json`, {
+    const response = await firebaseFetch(`${firebaseBaseUrl}/usuarios/${phone}/mensajes_pendientes.json`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -450,7 +450,7 @@ async function saveMessageToFirebase(phone, message) {
 }
 
 async function setHasPendingMessages(phone) {
-    const response = await fetch(`${firebaseBaseUrl}/usuarios/${phone}/control/has_pending_messages.json`, {
+    const response = await firebaseFetch(`${firebaseBaseUrl}/usuarios/${phone}/control/has_pending_messages.json`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(true)
