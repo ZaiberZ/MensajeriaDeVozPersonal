@@ -8,9 +8,9 @@ public class WhatsAppMessageProcessor
     private readonly WhatsAppService _whatsApp;
     private readonly FirebaseService _firebase;
     private readonly ILogger _logger;
-    private readonly Func<string, string, CancellationToken, Task> _registerWorkerLog;
+    private readonly Func<string, string, string?, CancellationToken, Task> _registerWorkerLog;
 
-    public WhatsAppMessageProcessor(WhatsAppService whatsApp, FirebaseService firebase, ILogger logger, Func<string, string, CancellationToken, Task> registerWorkerLog)
+    public WhatsAppMessageProcessor(WhatsAppService whatsApp, FirebaseService firebase, ILogger logger, Func<string, string, string?, CancellationToken, Task> registerWorkerLog)
     {
         _whatsApp = whatsApp;
         _firebase = firebase;
@@ -97,7 +97,7 @@ public class WhatsAppMessageProcessor
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reconciliando mensajes leídos entre Firebase y WhatsApp.");
-            await _registerWorkerLog("error", $"Error reconciliando mensajes leídos entre Firebase y WhatsApp: {ex}", stoppingToken);
+            await _registerWorkerLog("error", "Error reconciliando mensajes leídos entre Firebase y WhatsApp.", ex.ToString(), stoppingToken);
             return false;
         }
     }
@@ -158,7 +158,7 @@ public class WhatsAppMessageProcessor
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error guardando mensajes nuevos.");
-            await _registerWorkerLog("error", $"Error guardando mensajes nuevos: {ex}", stoppingToken);
+            await _registerWorkerLog("error", "Error guardando mensajes nuevos.", ex.ToString(), stoppingToken);
         }
 
     }
@@ -217,7 +217,7 @@ public class WhatsAppMessageProcessor
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sincronizando los últimos mensajes de los contactos favoritos.");
-            await _registerWorkerLog("error", $"Error sincronizando los últimos mensajes de los contactos favoritos: {ex}", stoppingToken);
+            await _registerWorkerLog("error", "Error sincronizando los últimos mensajes de los contactos favoritos.", ex.ToString(), stoppingToken);
             return false;
         }
     }

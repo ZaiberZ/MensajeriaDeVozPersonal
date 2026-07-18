@@ -54,6 +54,21 @@ const formatLogDate = value => {
     return date.toLocaleString();
 };
 
+const copyLogDetail = async (detail, button) => {
+    try {
+        await navigator.clipboard.writeText(detail);
+        button.textContent = "Copiado";
+        setTimeout(() => { button.textContent = "Copiar detalle"; }, 1500);
+    } catch (error) {
+        document.getElementById("detail").textContent = "No fue posible copiar el detalle: " + error.message;
+    }
+};
+
+const createLogMessagePreview = message => {
+    const normalized = String(message || "Log sin mensaje.").replace(/\s+/g, " ").trim();
+    return normalized.length <= 240 ? normalized : normalized.slice(0, 240) + "...";
+};
+
 const renderErrorLogs = logs => {
     const section = document.getElementById("errorLogsSection");
     const list = document.getElementById("errorLogs");
@@ -74,9 +89,40 @@ const renderErrorLogs = logs => {
 
         const message = document.createElement("p");
         message.className = "log-message";
-        message.textContent = log.message || "Log sin detalle.";
+        message.textContent = createLogMessagePreview(log.message);
 
         entry.append(meta, message);
+
+        const detail = log.detail || (String(log.message || "").length > 240 ? log.message : null);
+
+        if (detail) {
+            const detailContainer = document.createElement("div");
+            detailContainer.className = "log-detail-container";
+            detailContainer.hidden = true;
+
+            const detailText = document.createElement("pre");
+            detailText.className = "log-detail";
+            detailText.textContent = detail;
+
+            const copyButton = document.createElement("button");
+            copyButton.type = "button";
+            copyButton.className = "log-detail-copy";
+            copyButton.textContent = "Copiar detalle";
+            copyButton.addEventListener("click", () => copyLogDetail(detail, copyButton));
+
+            const toggleButton = document.createElement("button");
+            toggleButton.type = "button";
+            toggleButton.className = "log-detail-toggle";
+            toggleButton.textContent = "Mostrar detalle";
+            toggleButton.addEventListener("click", () => {
+                detailContainer.hidden = !detailContainer.hidden;
+                toggleButton.textContent = detailContainer.hidden ? "Mostrar detalle" : "Ocultar detalle";
+            });
+
+            detailContainer.append(copyButton, detailText);
+            entry.append(toggleButton, detailContainer);
+        }
+
         list.append(entry);
     }
 };

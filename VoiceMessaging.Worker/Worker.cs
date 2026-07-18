@@ -12,7 +12,7 @@ namespace VoiceMessaging.Worker;
 public class Worker : BackgroundService
 {
     private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
-    private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan FavoriteMessagesSyncInterval = TimeSpan.FromHours(4);
     private static readonly TimeSpan FavoriteMessagesSyncRetryInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(50);
@@ -89,9 +89,14 @@ public class Worker : BackgroundService
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
         await RegisterWorkerStartedAtAsync(stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
-        var initialReadReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
+        var whatsAppConnected = await whatsApp.IsConnectedAsync(stoppingToken);
+        var initialReadReconciliationCompleted = whatsAppConnected && await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
         await DeleteOldReadMessagesAsync(firebase, stoppingToken);
-        var initialFavoriteSyncCompleted = await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
+        var initialFavoriteSyncCompleted = whatsAppConnected && await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
+
+        if (!whatsAppConnected)
+            _logger.LogInformation("La reconciliación y la sincronización de favoritos esperarán hasta que WhatsApp esté conectado.");
+
         var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
         var nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(initialFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
         var nextAirbnbCheckAt = DateTime.UtcNow;
@@ -108,9 +113,10 @@ public class Worker : BackgroundService
                     continue;
                 }
 
-                await RegisterWorkerLogAsync("warning", "WhatsAppGateway dejó de responder y fue reiniciado por el Worker.", stoppingToken);
-                var restartReadReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
-                var restartFavoriteSyncCompleted = await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
+                await RegisterWorkerLogAsync("warning", "WhatsAppGateway dejó de responder y fue reiniciado por el Worker.", null, stoppingToken);
+                whatsAppConnected = await whatsApp.IsConnectedAsync(stoppingToken);
+                var restartReadReconciliationCompleted = whatsAppConnected && await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
+                var restartFavoriteSyncCompleted = whatsAppConnected && await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
                 nextReadReconciliationAt = DateTime.UtcNow.Add(restartReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
                 nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(restartFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
             }
@@ -123,13 +129,15 @@ public class Worker : BackgroundService
 
             if (DateTime.UtcNow >= nextReadReconciliationAt)
             {
-                var readReconciliationCompleted = await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
+                var readReconciliationCompleted = await whatsApp.IsConnectedAsync(stoppingToken) &&
+                    await whatsAppProcessor.ReconcileUnreadMessagesAsync(stoppingToken);
                 nextReadReconciliationAt = DateTime.UtcNow.Add(readReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
             }
 
             if (DateTime.UtcNow >= nextFavoriteMessagesSyncAt)
             {
-                var favoriteSyncCompleted = await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
+                var favoriteSyncCompleted = await whatsApp.IsConnectedAsync(stoppingToken) &&
+                    await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
                 nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(favoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
             }
 
@@ -149,7 +157,7 @@ public class Worker : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "No fue posible consultar o procesar Airbnb. WhatsApp continuará funcionando.");
-                    await RegisterWorkerLogAsync("error", $"No fue posible consultar o procesar Airbnb: {ex}", stoppingToken);
+                    await RegisterWorkerLogAsync("error", "No fue posible consultar o procesar Airbnb.", ex.ToString(), stoppingToken);
                 }
             }
 
@@ -258,7 +266,7 @@ public class Worker : BackgroundService
             {
                 warningLogged = true;
                 _logger.LogWarning(lastConnectionException, "Sin conexión con Firebase. El Worker esperará a que Internet vuelva a estar disponible.");
-                await RegisterWorkerLogAsync("warning", "Sin conexión con Firebase. El Worker está esperando a que Internet vuelva a estar disponible.", stoppingToken);
+                await RegisterWorkerLogAsync("warning", "Sin conexión con Firebase. El Worker está esperando a que Internet vuelva a estar disponible.", lastConnectionException?.ToString(), stoppingToken);
             }
 
             await Task.Delay(InternetConnectionRetryInterval, stoppingToken);
@@ -324,7 +332,7 @@ public class Worker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error limpiando mensajes leídos antiguos.");
-            await RegisterWorkerLogAsync("error",$"Error limpiando mensajes leídos antiguos: {ex}",stoppingToken);
+            await RegisterWorkerLogAsync("error", "Error limpiando mensajes leídos antiguos.", ex.ToString(), stoppingToken);
         }
     }
 
@@ -363,7 +371,7 @@ public class Worker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "No fue posible enviar el reporte diario de errores al telefono de soporte.");
-            await RegisterWorkerLogAsync("error", $"No fue posible enviar el reporte diario de errores al telefono de soporte: {ex}", stoppingToken);
+            await RegisterWorkerLogAsync("error", "No fue posible enviar el reporte diario de errores al telefono de soporte.", ex.ToString(), stoppingToken);
         }
     }
 
@@ -410,7 +418,7 @@ public class Worker : BackgroundService
         return normalizedMessage[..350] + "...";
     }
 
-    private async Task RegisterWorkerLogAsync(string level, string message, CancellationToken stoppingToken)
+    private async Task RegisterWorkerLogAsync(string level, string message, string? detail, CancellationToken stoppingToken)
     {
         try
         {
@@ -422,7 +430,7 @@ public class Worker : BackgroundService
                 Timeout = TimeSpan.FromSeconds(3)
             };
 
-            var response = await httpClient.PostAsJsonAsync("/logs", new { level, message, source = "VoiceMessaging.Worker" }, stoppingToken);
+            var response = await httpClient.PostAsJsonAsync("/logs", new { level, message, detail, source = "VoiceMessaging.Worker" }, stoppingToken);
 
             if (!response.IsSuccessStatusCode)
             {

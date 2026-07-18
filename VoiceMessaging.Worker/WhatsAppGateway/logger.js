@@ -60,17 +60,21 @@ function normalizeLogs(logs) {
             changed = true;
         }
 
+        if (!Object.hasOwn(normalizedLog, "detail")) {
+            normalizedLog.detail = null;
+            changed = true;
+        }
+
         return normalizedLog;
     });
 
     return { normalizedLogs, changed };
 }
 
-function writeLog(level, args, source = "WhatsAppGateway") {
+function writeLog(level, message, detail = null, source = "WhatsAppGateway") {
     try {
         const logs = readLogs();
         const timestamp = new Date().toISOString();
-        const message = formatArguments(args);
         const duplicateIndexes = [];
 
         for (let index = 0; index < logs.length; index++) {
@@ -91,6 +95,7 @@ function writeLog(level, args, source = "WhatsAppGateway") {
             level,
             source,
             message,
+            detail,
             attemptCount: previousAttemptCount + 1,
             lastAttemptAt: timestamp,
             reportedAt: null
@@ -102,6 +107,7 @@ function writeLog(level, args, source = "WhatsAppGateway") {
         } else {
             savedEntry = {
                 ...logs[lastDuplicateIndex],
+                detail,
                 attemptCount: entry.attemptCount,
                 lastAttemptAt: timestamp,
                 reportedAt: null
@@ -119,7 +125,7 @@ function writeLog(level, args, source = "WhatsAppGateway") {
     }
 }
 
-function addLog(level, message, source = "External") {
+function addLog(level, message, source = "External", detail = null) {
     const normalizedLevel = level?.toLowerCase();
 
     if (!["error", "warning"].includes(normalizedLevel))
@@ -128,7 +134,8 @@ function addLog(level, message, source = "External") {
     if (typeof message !== "string" || !message.trim())
         throw new Error("El mensaje del log es obligatorio.");
 
-    return writeLog(normalizedLevel, [message.trim()], source);
+    const normalizedDetail = typeof detail === "string" && detail.trim() ? detail.trim() : null;
+    return writeLog(normalizedLevel, message.trim(), normalizedDetail, source);
 }
 
 function formatArguments(args) {
@@ -146,14 +153,40 @@ function formatArguments(args) {
     }).join(" ");
 }
 
+function splitLogArguments(args) {
+    if (args.length === 0)
+        return { message: "Log sin mensaje.", detail: null };
+
+    const first = args[0];
+
+    if (first instanceof Error) {
+        return {
+            message: first.message || first.name || "Error sin mensaje.",
+            detail: first.stack || formatArguments(args)
+        };
+    }
+
+    const message = typeof first === "string" ? first.trim() : formatArguments([first]);
+    const detail = args.length > 1 ? formatArguments(args.slice(1)) : null;
+    return { message: message || "Log sin mensaje.", detail };
+}
+
 function installConsoleCapture() {
     if (consoleCaptureInstalled)
         return;
 
     consoleCaptureInstalled = true;
 
-    console.error = (...args) => { writeLog("error", args); originalConsoleError(...args); };
-    console.warn = (...args) => { writeLog("warning", args); originalConsoleWarn(...args); };
+    console.error = (...args) => {
+        const { message, detail } = splitLogArguments(args);
+        writeLog("error", message, detail);
+        originalConsoleError(...args);
+    };
+    console.warn = (...args) => {
+        const { message, detail } = splitLogArguments(args);
+        writeLog("warning", message, detail);
+        originalConsoleWarn(...args);
+    };
 }
 
 function getLogs(level, limit = 200) {

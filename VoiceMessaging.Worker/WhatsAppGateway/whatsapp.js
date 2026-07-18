@@ -222,8 +222,7 @@ async function getUnreadMessages() {
     try {
         chats = await client.getChats();
     } catch (error) {
-        console.warn("WhatsApp no está disponible temporalmente para consultar los chats:");
-        console.warn(error);
+        console.warn("WhatsApp no está disponible temporalmente para consultar los chats:", error);
 
         const unavailableError = new Error("WhatsApp no está disponible temporalmente.");
         unavailableError.statusCode = 503;
@@ -512,6 +511,17 @@ function isConnected() {
     return { connected, User };
 }
 
+async function getStatus() {
+    if (!connected)
+        return { connected: false, User };
+
+    try {
+        return { connected: await client.getState() === "CONNECTED", User };
+    } catch {
+        return { connected: false, User };
+    }
+}
+
 module.exports = {
     initialize,
     getClient() { return client; },
@@ -523,6 +533,7 @@ module.exports = {
     markChatAsRead,
     logout,
     getQr,
+    getStatus,
     saveUser,
     clearUser,
     isConnected

@@ -8,9 +8,9 @@ public class PendingReplyProcessor
     private readonly AirbnbMessageProcessor _airbnbProcessor;
     private readonly FirebaseService _firebase;
     private readonly ILogger _logger;
-    private readonly Func<string, string, CancellationToken, Task> _registerWorkerLog;
+    private readonly Func<string, string, string?, CancellationToken, Task> _registerWorkerLog;
 
-    public PendingReplyProcessor(WhatsAppMessageProcessor whatsAppProcessor, AirbnbMessageProcessor airbnbProcessor, FirebaseService firebase, ILogger logger, Func<string, string, CancellationToken, Task> registerWorkerLog)
+    public PendingReplyProcessor(WhatsAppMessageProcessor whatsAppProcessor, AirbnbMessageProcessor airbnbProcessor, FirebaseService firebase, ILogger logger, Func<string, string, string?, CancellationToken, Task> registerWorkerLog)
     {
         _whatsAppProcessor = whatsAppProcessor;
         _airbnbProcessor = airbnbProcessor;
@@ -40,7 +40,7 @@ public class PendingReplyProcessor
                     if (string.Equals(reply.Source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase))
                     {
                         _logger.LogWarning("AirbnbEmail replies are not supported yet.");
-                        await _registerWorkerLog("warning", "AirbnbEmail replies are not supported yet.", stoppingToken);
+                        await _registerWorkerLog("warning", "AirbnbEmail replies are not supported yet.", null, stoppingToken);
                     }
                     else if (string.Equals(reply.Source, "Airbnb", StringComparison.OrdinalIgnoreCase))
                     {
@@ -50,7 +50,7 @@ public class PendingReplyProcessor
                     else if (string.IsNullOrWhiteSpace(reply.Phone))
                     {
                         _logger.LogWarning("No se pudo enviar respuesta {id}. No tiene teléfono.", reply.Sender);
-                        await _registerWorkerLog("warning", $"No se pudo enviar la respuesta de {reply.Sender}. No tiene teléfono.", stoppingToken);
+                        await _registerWorkerLog("warning", $"No se pudo enviar la respuesta de {reply.Sender}. No tiene teléfono.", null, stoppingToken);
                         allRepliesProcessed = false;
                         continue;
                     }
@@ -82,7 +82,7 @@ public class PendingReplyProcessor
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error enviando respuestas pendientes.");
-            await _registerWorkerLog("error", $"Error enviando respuestas pendientes: {ex}", stoppingToken);
+            await _registerWorkerLog("error", "Error enviando respuestas pendientes.", ex.ToString(), stoppingToken);
         }
 
     }

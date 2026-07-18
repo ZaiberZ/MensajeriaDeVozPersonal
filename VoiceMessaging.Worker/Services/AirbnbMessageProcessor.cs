@@ -8,10 +8,10 @@ public class AirbnbMessageProcessor
     private readonly AirbnbService _airbnb;
     private readonly FirebaseService _firebase;
     private readonly ILogger _logger;
-    private readonly Func<string, string, CancellationToken, Task> _registerWorkerLog;
+    private readonly Func<string, string, string?, CancellationToken, Task> _registerWorkerLog;
     private readonly bool _gatewayEnabled;
 
-    public AirbnbMessageProcessor(AirbnbService airbnb, FirebaseService firebase, ILogger logger, Func<string, string, CancellationToken, Task> registerWorkerLog, bool gatewayEnabled)
+    public AirbnbMessageProcessor(AirbnbService airbnb, FirebaseService firebase, ILogger logger, Func<string, string, string?, CancellationToken, Task> registerWorkerLog, bool gatewayEnabled)
     {
         _airbnb = airbnb;
         _firebase = firebase;
@@ -81,7 +81,7 @@ public class AirbnbMessageProcessor
         {
             errors += ex.Message + " | ";
             _logger.LogError(ex, "Error guardando mensajes nuevos de Airbnb.");
-            await _registerWorkerLog("error", $"Error guardando mensajes nuevos de Airbnb: {ex}", stoppingToken);
+            await _registerWorkerLog("error", "Error guardando mensajes nuevos de Airbnb.", ex.ToString(), stoppingToken);
         }
 
     }

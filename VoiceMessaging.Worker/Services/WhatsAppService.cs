@@ -13,6 +13,27 @@ public class WhatsAppService
         _httpClient = http;
     }
 
+    public async Task<bool> IsConnectedAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var status = await _httpClient.GetFromJsonAsync<GatewayStatusDto>("/whatsapp/status", cancellationToken);
+            return status?.Connected == true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            return false;
+        }
+    }
+
     public async Task SendMessageAsync(string phone, string text, CancellationToken cancellationToken = default)
     {
         var request = new { phone, text };

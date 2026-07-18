@@ -40,8 +40,8 @@ app.get("/", (req, res) => {
     res.send("Voice Messaging Gateway funcionando.");
 });
 
-app.get("/whatsapp/status", (req, res) => {
-    res.json(whatsapp.isConnected());
+app.get("/whatsapp/status", async (req, res) => {
+    res.json(await whatsapp.getStatus());
 });
 
 app.post("/worker-status", (req, res) => {
@@ -455,8 +455,8 @@ app.get("/logs/unreported-errors", (req, res) => {
 
 app.post("/logs", (req, res) => {
     try {
-        const { level, message, source = "VoiceMessaging.Worker" } = req.body ?? {};
-        const log = logger.addLog(level, message, source);
+        const { level, message, detail = null, source = "VoiceMessaging.Worker" } = req.body ?? {};
+        const log = logger.addLog(level, message, source, detail);
 
         if (!log)
             return res.status(500).json({ success: false, message: "No fue posible guardar el log." });

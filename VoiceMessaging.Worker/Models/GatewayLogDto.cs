@@ -19,6 +19,9 @@ public class GatewayLogDto
     [JsonPropertyName("message")]
     public string Message { get; set; } = "";
 
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
+
     [JsonPropertyName("attemptCount")]
     public int AttemptCount { get; set; } = 1;
 
