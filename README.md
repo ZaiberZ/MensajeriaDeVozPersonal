@@ -51,7 +51,7 @@ VoiceMessaging.Worker/              Servicio de Windows y procesos de sincroniza
 VoiceMessaging.Worker/WhatsAppGateway/
                                     API local, WhatsApp Web, Gmail e interfaces web
 Installer/                          Instalador de Inno Setup
-Skill_VoiceMessage.json             Modelo de interacción de Alexa en español
+Skill_VoiceMessage_Es-MX.json             Modelo de interacción de Alexa en español
 Mensajería de Voz Personal.slnx     Solución de .NET
 build-installer.bat                 Publicación y compilación del instalador
 ```
@@ -190,12 +190,20 @@ La instalación requiere privilegios de administrador y Node.js 20 LTS o superio
 dotnet build "Mensajería de Voz Personal.slnx" --no-restore
 node --check VoiceMessaging.Worker\WhatsAppGateway\app.js
 node --check VoiceMessaging.Worker\WhatsAppGateway\whatsapp.js
-Get-Content Skill_VoiceMessage.json | ConvertFrom-Json | Out-Null
+Get-Content Skill_VoiceMessage_Es-MX.json | ConvertFrom-Json | Out-Null
 ```
 
 ## Enfoque del proyecto
 
 El proyecto sigue siendo un MVP enfocado en accesibilidad y funcionamiento de extremo a extremo. Se favorecen cambios pequeños, código directo y reutilización de los componentes existentes antes de introducir capas o patrones adicionales.
+
+## Contacto y pruebas
+
+Si te interesa instalar el proyecto para probarlo, evaluar su uso con un familiar con discapacidad visual o colaborar en su desarrollo, puedes contactarme mediante [LinkedIn](https://www.linkedin.com/in/luis-adrian-mr), [mi perfil de GitHub](https://github.com/ZaiberZ) o [abrir una consulta en el repositorio](https://github.com/ZaiberZ/MensajeriaDeVozPersonal/issues/new).
+
+Las consultas de GitHub son públicas. No incluyas teléfonos, correos personales, credenciales, tokens, datos médicos ni información privada de la persona que utilizará el sistema. Describe únicamente el escenario general y podremos acordar por separado el canal apropiado para continuar.
+
+Este es un desarrollo personal orientado a accesibilidad y actualmente se ofrece para pruebas y colaboración; no constituye un servicio oficial de soporte, salud o emergencias.
 
 ## Licencia
 

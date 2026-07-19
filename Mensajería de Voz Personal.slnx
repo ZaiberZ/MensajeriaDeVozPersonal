@@ -3,7 +3,7 @@
     <File Path=".editorconfig" />
     <File Path="build-installer.bat" />
     <File Path="Installer/VoiceMessagingInstaller.iss" />
-    <File Path="Skill_VoiceMessage.json" />
+    <File Path="Skill_VoiceMessage_Es-MX.json" />
   </Folder>
   <Folder Name="/WhatsAppGateway/">
     <File Path="WhatsAppGateway/app.js" />

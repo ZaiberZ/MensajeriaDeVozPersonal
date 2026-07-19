@@ -143,7 +143,7 @@ AWS permite cifrar las variables con KMS. Si lo habilitas, concede `kms:Decrypt`
 1. Abre [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) y pulsa **Create Skill**.
 2. Asigna un nombre, selecciona el idioma español que usarás y el modelo **Custom**.
 3. Crea la skill con recursos de backend propios cuando la consola solicite el método de alojamiento.
-4. En **Interaction Model > JSON Editor**, importa el contenido de `Skill_VoiceMessage.json`.
+4. En **Interaction Model > JSON Editor**, importa el contenido de `Skill_VoiceMessage_Es-MX.json`.
 5. Guarda y pulsa **Build Model**.
 6. Revisa en **Invocation** el nombre con el que abrirás la skill.
 
