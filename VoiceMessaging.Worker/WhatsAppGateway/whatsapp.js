@@ -317,20 +317,48 @@ async function getRecentMessages(chatIds, count = 5) {
     const requestedChatIds = [...new Set((chatIds || []).filter(Boolean))];
     const messageLimit = Math.min(Math.max(Number(count) || 5, 1), 5);
     const recentMessages = [];
+    let successfulChats = 0;
+    let lastError = null;
 
     for (const chatId of requestedChatIds) {
-        try {
-            const chat = await client.getChatById(chatId);
-            const chatMessages = await chat.fetchMessages({ limit: messageLimit * 10 });
-            const incomingMessages = chatMessages.filter(isSupportedIncomingMessage).slice(-messageLimit);
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const chat = await client.getChatById(chatId);
 
-            for (const message of incomingMessages) {
-                recentMessages.push(await createIncomingMessage(message, chat.name || chatId));
+                if (!chat)
+                    throw new Error("El chat no está disponible en la sesión actual de WhatsApp.");
+
+                const chatMessages = await chat.fetchMessages({ limit: messageLimit * 10 });
+                const incomingMessages = chatMessages.filter(isSupportedIncomingMessage).slice(-messageLimit);
+
+                for (const message of incomingMessages) {
+                    recentMessages.push(await createIncomingMessage(message, chat.name || chatId));
+                }
+
+                successfulChats++;
+                break;
+            } catch (error) {
+                lastError = error;
+
+                if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    continue;
+                }
+
+                console.warn("No fue posible recuperar los mensajes recientes de uno de los contactos favoritos después de 3 intentos:");
+                console.warn(error);
             }
-        } catch (error) {
-            throw createWhatsAppUnavailableError();
         }
     }
+
+    if (requestedChatIds.length > 0 && successfulChats === 0) {
+        const error = createWhatsAppUnavailableError();
+        error.cause = lastError;
+        throw error;
+    }
+
+    if (successfulChats < requestedChatIds.length)
+        console.warn(`La sincronización de favoritos continuó parcialmente. Chats consultados: ${successfulChats} de ${requestedChatIds.length}.`);
 
     return recentMessages;
 }

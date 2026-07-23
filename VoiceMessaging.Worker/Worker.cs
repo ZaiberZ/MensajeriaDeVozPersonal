@@ -121,9 +121,12 @@ public class Worker : BackgroundService
                 nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(restartFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
             }
 
-            if (await whatsApp.ConsumeFavoriteMessagesSyncRequestAsync(stoppingToken))
+            var manualFavoriteSyncRequested = await whatsApp.ConsumeFavoriteMessagesSyncRequestAsync(stoppingToken);
+
+            if (manualFavoriteSyncRequested)
             {
                 _logger.LogInformation("Se recibió una solicitud manual para sincronizar los mensajes de contactos favoritos.");
+                await RegisterWorkerLogAsync("info", "Se recibió una solicitud manual para sincronizar los mensajes de contactos favoritos.", null, stoppingToken);
                 nextFavoriteMessagesSyncAt = DateTime.UtcNow;
             }
 
@@ -142,8 +145,21 @@ public class Worker : BackgroundService
 
             if (DateTime.UtcNow >= nextFavoriteMessagesSyncAt)
             {
-                var favoriteSyncCompleted = await whatsApp.IsConnectedAsync(stoppingToken) &&
-                    await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
+                var favoriteSyncSource = manualFavoriteSyncRequested ? "manual" : "automática";
+                var favoriteSyncCompleted = false;
+
+                if (!await whatsApp.IsConnectedAsync(stoppingToken))
+                {
+                    var message = $"La sincronización {favoriteSyncSource} de favoritos no se ejecutó porque WhatsApp no está conectado. Se reintentará en {FavoriteMessagesSyncRetryInterval.TotalMinutes:0} minutos.";
+                    _logger.LogWarning(message);
+                    await RegisterWorkerLogAsync("warning", message, null, stoppingToken);
+                }
+                else
+                {
+                    _logger.LogInformation("Iniciando sincronización {source} de mensajes de contactos favoritos.", favoriteSyncSource);
+                    favoriteSyncCompleted = await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
+                }
+
                 nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(favoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
             }
 

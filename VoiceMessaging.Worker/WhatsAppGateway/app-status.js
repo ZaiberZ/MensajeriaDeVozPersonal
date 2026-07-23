@@ -28,6 +28,8 @@ const showActionMessage = (text, kind = "info") => {
     element.hidden = false;
 };
 
+const expandedLogIds = new Set();
+
 const renderWhatsAppStatus = status => {
     if (status?.connected === true) {
         setStatus("whatsapp", "ok", "Conectado");
@@ -143,7 +145,7 @@ const renderErrorLogs = logs => {
         if (detail) {
             const detailContainer = document.createElement("div");
             detailContainer.className = "log-detail-container";
-            detailContainer.hidden = true;
+            detailContainer.hidden = !expandedLogIds.has(log.id);
 
             const detailText = document.createElement("pre");
             detailText.className = "log-detail";
@@ -158,10 +160,15 @@ const renderErrorLogs = logs => {
             const toggleButton = document.createElement("button");
             toggleButton.type = "button";
             toggleButton.className = "log-detail-toggle";
-            toggleButton.textContent = "Mostrar detalle";
+            toggleButton.textContent = detailContainer.hidden ? "Mostrar detalle" : "Ocultar detalle";
             toggleButton.addEventListener("click", () => {
                 detailContainer.hidden = !detailContainer.hidden;
                 toggleButton.textContent = detailContainer.hidden ? "Mostrar detalle" : "Ocultar detalle";
+
+                if (detailContainer.hidden)
+                    expandedLogIds.delete(log.id);
+                else
+                    expandedLogIds.add(log.id);
             });
 
             detailContainer.append(copyButton, detailText);
@@ -283,6 +290,7 @@ document.getElementById("clearLogsButton").addEventListener("click", async () =>
             throw new Error(body.error || "HTTP " + response.status);
 
         renderErrorLogs([]);
+        expandedLogIds.clear();
         showActionMessage("Todos los logs fueron eliminados.", "success");
     } catch (error) {
         showActionMessage("No fue posible limpiar los logs: " + error.message, "error");

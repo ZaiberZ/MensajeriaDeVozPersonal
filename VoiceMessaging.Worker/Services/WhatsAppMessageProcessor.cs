@@ -173,13 +173,22 @@ public class WhatsAppMessageProcessor
                 .Select(contact => contact.ChatId).Distinct().ToList();
 
             if (chatIds.Count == 0)
+            {
+                const string message = "La sincronización de favoritos terminó sin consultar WhatsApp porque no hay contactos frecuentes de WhatsApp con un ChatId registrado.";
+                _logger.LogWarning(message);
+                await _registerWorkerLog("warning", message, null, stoppingToken);
                 return true;
+            }
+
+            _logger.LogInformation("Consultando los últimos mensajes de {count} contactos favoritos de WhatsApp.", chatIds.Count);
 
             var recentMessages = await _whatsApp.GetRecentMessagesAsync(chatIds, 5);
 
             if (recentMessages == null)
             {
-                _logger.LogInformation("Sincronización de favoritos aplazada porque WhatsApp todavía no está conectado. Se volverá a intentar más tarde.");
+                const string message = "Sincronización de favoritos aplazada porque WhatsApp todavía no está conectado. Se volverá a intentar más tarde.";
+                _logger.LogWarning(message);
+                await _registerWorkerLog("warning", message, null, stoppingToken);
                 return false;
             }
 
@@ -197,7 +206,9 @@ public class WhatsAppMessageProcessor
                 addedMessages++;
             }
 
-            _logger.LogInformation("Sincronización de favoritos completada. Mensajes históricos agregados: {added}.", addedMessages);
+            var completedMessage = $"Sincronización de favoritos completada. Chats consultados: {chatIds.Count}. Mensajes recuperados: {recentMessages.Count}. Mensajes históricos agregados: {addedMessages}.";
+            _logger.LogInformation(completedMessage);
+            await _registerWorkerLog("info", completedMessage, null, stoppingToken);
             return true;
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -206,12 +217,16 @@ public class WhatsAppMessageProcessor
         }
         catch (HttpRequestException ex) when (ex.StatusCode is null)
         {
-            _logger.LogWarning("Sincronización de favoritos aplazada por falta temporal de conexión: {message}", ex.Message);
+            const string message = "Sincronización de favoritos aplazada por falta temporal de conexión.";
+            _logger.LogWarning(ex, message);
+            await _registerWorkerLog("warning", message, ex.ToString(), stoppingToken);
             return false;
         }
         catch (TaskCanceledException ex)
         {
-            _logger.LogWarning("Sincronización de favoritos aplazada porque la consulta excedió el tiempo de espera: {message}", ex.Message);
+            const string message = "Sincronización de favoritos aplazada porque la consulta excedió el tiempo de espera.";
+            _logger.LogWarning(ex, message);
+            await _registerWorkerLog("warning", message, ex.ToString(), stoppingToken);
             return false;
         }
         catch (Exception ex)
