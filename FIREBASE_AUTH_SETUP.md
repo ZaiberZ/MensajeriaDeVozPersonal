@@ -59,12 +59,39 @@ La Web API Key identifica el proyecto, pero no autoriza por sí sola el acceso. 
 {
   "rules": {
     ".read": "auth != null && auth.uid === 'REEMPLAZA_CON_UID'",
-    ".write": "auth != null && auth.uid === 'REEMPLAZA_CON_UID'"
+    ".write": "auth != null && auth.uid === 'REEMPLAZA_CON_UID'",
+    "usuarios": {
+      ".indexOn": ["configuracion/id_alexa_hash"]
+    }
   }
 }
 ```
 
 Estas reglas conservan la estructura actual basada en teléfonos y restringen toda la base a una identidad concreta. No uses solo `auth != null`, porque cualquier cuenta autenticada del proyecto tendría acceso.
+
+El índice `configuracion/id_alexa_hash` permite que la skill encuentre el teléfono asociado sin mantener un segundo árbol de usuarios.
+
+### Migrar registros existentes de Alexa
+
+Las versiones anteriores guardaban la asociación entre Alexa y el teléfono bajo `/usuarios_alexa`. La versión de transición continúa leyendo y escribiendo esa ruta, pero usa como ubicación principal:
+
+```text
+/usuarios/{telefono}/configuracion/id_alexa_hash
+```
+
+Después de respaldar la base, carga las variables de entorno y ejecuta primero una vista previa:
+
+```powershell
+.\scripts\Migrate-AlexaUsers.ps1
+```
+
+Revisa los registros inválidos o en conflicto. Para copiar las asociaciones válidas:
+
+```powershell
+.\scripts\Migrate-AlexaUsers.ps1 -Apply
+```
+
+El script no modifica ni elimina `/usuarios_alexa`. Conserva esa ruta durante la publicación de la versión compatible de la skill. Elimínala únicamente en una migración posterior, cuando todos los registros hayan sido verificados y el código ya no necesite el fallback.
 
 ## 3. Configurar Google Cloud y Gmail
 

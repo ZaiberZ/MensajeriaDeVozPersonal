@@ -14,13 +14,18 @@ public class AlexaUserPhoneService
         if (string.IsNullOrWhiteSpace(alexaUserId))
             return null;
 
-        var path = FirebaseSettings.AlexaUser(CreateKey(alexaUserId));
-        var json = await _httpClient.GetStringAsync($"{path}.json");
+        var alexaIdHash = CreateKey(alexaUserId);
+        var phone = await FindPhoneInUsersAsync(alexaIdHash);
 
-        if (string.IsNullOrWhiteSpace(json) || json == "null")
+        if (!string.IsNullOrWhiteSpace(phone))
+            return phone;
+
+        var legacyRecord = await GetLegacyRecordAsync(alexaIdHash);
+
+        if (legacyRecord == null || string.IsNullOrWhiteSpace(legacyRecord.Phone))
             return null;
 
-        return JsonSerializer.Deserialize<AlexaUserPhone>(json)?.Phone;
+        return DigitsOnly(legacyRecord.Phone);
     }
 
     public async Task SavePhoneAsync(string alexaUserId, string phone)
@@ -28,21 +33,98 @@ public class AlexaUserPhoneService
         if (string.IsNullOrWhiteSpace(alexaUserId))
             throw new InvalidOperationException("La solicitud no contiene el identificador del usuario de Alexa.");
 
+        var normalizedPhone = DigitsOnly(phone);
+
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+            throw new InvalidOperationException("El teléfono no contiene dígitos válidos.");
+
+        var alexaIdHash = CreateKey(alexaUserId);
+        var updatedAt = AppClock.Now;
+        var previousPhone = await FindPhoneInUsersAsync(alexaIdHash);
+        var legacyRecord = await GetLegacyRecordAsync(alexaIdHash);
+
+        if (string.IsNullOrWhiteSpace(previousPhone) && legacyRecord != null)
+            previousPhone = DigitsOnly(legacyRecord.Phone);
+
+        var targetAlexaIdHash = await GetCanonicalAlexaIdHashAsync(normalizedPhone);
+
+        if (!string.IsNullOrWhiteSpace(targetAlexaIdHash) && targetAlexaIdHash != alexaIdHash)
+            throw new InvalidOperationException("El teléfono ya está asociado con otro usuario de Alexa.");
+
         var record = new AlexaUserPhone
         {
-            Phone = DigitsOnly(phone),
-            UpdatedAt = AppClock.Now
+            Phone = normalizedPhone,
+            UpdatedAt = updatedAt
+        };
+        var updates = new Dictionary<string, object?>
+        {
+            [$"usuarios/{normalizedPhone}/configuracion/id_alexa_hash"] = alexaIdHash,
+            [$"usuarios/{normalizedPhone}/configuracion/alexa_actualizado_en"] = updatedAt,
+            [$"usuarios_alexa/{alexaIdHash}"] = record
         };
 
-        var path = FirebaseSettings.AlexaUser(CreateKey(alexaUserId));
-        var content = new StringContent(
-            JsonSerializer.Serialize(record),
-            Encoding.UTF8,
-            "application/json");
+        if (!string.IsNullOrWhiteSpace(previousPhone) && previousPhone != normalizedPhone)
+        {
+            updates[$"usuarios/{previousPhone}/configuracion/id_alexa_hash"] = null;
+            updates[$"usuarios/{previousPhone}/configuracion/alexa_actualizado_en"] = null;
+        }
 
-        var response = await _httpClient.PutAsync($"{path}.json", content);
+        var content = CreateJsonContent(updates);
+        var response = await _httpClient.PatchAsync($"{FirebaseSettings.BaseUrl}/.json", content);
         response.EnsureSuccessStatusCode();
     }
+
+    private async Task<string?> FindPhoneInUsersAsync(string alexaIdHash)
+    {
+        var orderBy = Uri.EscapeDataString("\"configuracion/id_alexa_hash\"");
+        var equalTo = Uri.EscapeDataString(JsonSerializer.Serialize(alexaIdHash));
+        var url = $"{FirebaseSettings.Users}.json?orderBy={orderBy}&equalTo={equalTo}&limitToFirst=2";
+
+        try
+        {
+            var json = await _httpClient.GetStringAsync(url);
+
+            if (string.IsNullOrWhiteSpace(json) || json == "null")
+                return null;
+
+            var users = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+
+            if (users == null || users.Count == 0)
+                return null;
+
+            if (users.Count > 1)
+                throw new InvalidOperationException("El identificador de Alexa está asociado con más de un teléfono.");
+
+            return DigitsOnly(users.Keys.Single());
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<AlexaUserPhone?> GetLegacyRecordAsync(string alexaIdHash)
+    {
+        var json = await _httpClient.GetStringAsync($"{FirebaseSettings.LegacyAlexaUser(alexaIdHash)}.json");
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return null;
+
+        return JsonSerializer.Deserialize<AlexaUserPhone>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+    }
+
+    private async Task<string?> GetCanonicalAlexaIdHashAsync(string phone)
+    {
+        var json = await _httpClient.GetStringAsync($"{FirebaseSettings.AlexaIdHashFor(phone)}.json");
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return null;
+
+        return JsonSerializer.Deserialize<string>(json);
+    }
+
+    private static StringContent CreateJsonContent(object value) =>
+        new(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json");
 
     private static string CreateKey(string alexaUserId)
     {
