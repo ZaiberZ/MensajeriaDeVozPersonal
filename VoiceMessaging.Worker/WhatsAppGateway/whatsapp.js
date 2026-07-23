@@ -29,8 +29,15 @@ const hasSession = fs.existsSync(sessionPath);
 
 let initialized = false;
 let connected = false;
+let connectionState = "INITIALIZING";
+let conflictDetectedAt = null;
+let manualTakeoverRunning = false;
+let manualTakeoverRequestedAt = null;
+let lastTakeoverError = null;
 let logoutInProgress = false;
 let restartScheduled = false;
+const takeoverTimeoutMs = 5 * 1000;
+const manualTakeoverDelayMs = takeoverTimeoutMs + 3 * 1000;
 const initializationRetryDelayMs = 15 * 1000;
 const initializationMaxAttempts = 5;
 const sendRetryDelayMs = 5 * 1000;
@@ -42,6 +49,8 @@ const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "Se
 
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "personal", dataPath: authPath }),
+    takeoverOnConflict: true,
+    takeoverTimeoutMs,
 
     puppeteer: {
         headless: hasReadySession,
@@ -68,6 +77,32 @@ function getQr() {
     return lastQr;
 }
 
+function updateConnectionState(state) {
+    const normalizedState = String(state || "UNKNOWN").toUpperCase();
+    const previousState = connectionState;
+    connectionState = normalizedState;
+    connected = normalizedState === "CONNECTED";
+
+    if (normalizedState === "CONFLICT") {
+        if (!conflictDetectedAt) {
+            conflictDetectedAt = new Date();
+            console.warn("WhatsApp está abierto en otro navegador. Se intentará usar la sesión en este equipo.");
+        }
+    } else if (connected) {
+        if (conflictDetectedAt)
+            console.log("El conflicto de sesión terminó. WhatsApp continuará en este equipo.");
+
+        conflictDetectedAt = null;
+        manualTakeoverRunning = false;
+        manualTakeoverRequestedAt = null;
+        lastTakeoverError = null;
+    } else if (previousState === "CONFLICT" && normalizedState !== "OPENING") {
+        conflictDetectedAt = null;
+        manualTakeoverRunning = false;
+        manualTakeoverRequestedAt = null;
+    }
+}
+
 client.on("qr", async (qr) => {
     lastQr = await qrcode.toDataURL(qr);
 
@@ -75,7 +110,7 @@ client.on("qr", async (qr) => {
 });
 
 client.on("ready", async () => {
-    connected = true;
+    updateConnectionState("CONNECTED");
     lastQr = null;
     User.IsRegistered = true;
     fs.writeFileSync(readyFilePath, new Date().toISOString(), "utf8");
@@ -99,14 +134,18 @@ client.on("authenticated", () => {
     console.log("Sesión autenticada.");
 });
 
+client.on("change_state", state => {
+    updateConnectionState(state);
+    console.log(`Estado de WhatsApp: ${connectionState}.`);
+});
+
 client.on("auth_failure", message => {
     console.log("Error de autenticación.");
     console.log(message);
 });
 
 client.on("disconnected", async reason => {
-
-    connected = false;
+    updateConnectionState(reason || "DISCONNECTED");
     User.IsRegistered = false;
 
     console.log("WhatsApp desconectado.");
@@ -512,13 +551,63 @@ function isConnected() {
 }
 
 async function getStatus() {
-    if (!connected)
-        return { connected: false, User };
+    try {
+        updateConnectionState(await client.getState());
+    } catch {
+        if (connected)
+            updateConnectionState("UNKNOWN");
+    }
+
+    const latestTakeoverAttemptAt = manualTakeoverRequestedAt || conflictDetectedAt;
+    const takeoverAttemptAgeMs = latestTakeoverAttemptAt ? Date.now() - latestTakeoverAttemptAt.getTime() : 0;
+    const conflict = connectionState === "CONFLICT";
+
+    return {
+        connected,
+        state: connectionState,
+        conflict,
+        takeoverInProgress: manualTakeoverRunning || (conflict && takeoverAttemptAgeMs < manualTakeoverDelayMs),
+        canTakeover: conflict && !manualTakeoverRunning && takeoverAttemptAgeMs >= manualTakeoverDelayMs,
+        conflictDetectedAt: conflictDetectedAt?.toISOString() ?? null,
+        lastTakeoverError,
+        User
+    };
+}
+
+async function requestTakeover() {
+    const status = await getStatus();
+
+    if (status.connected)
+        return status;
+
+    if (!status.conflict) {
+        const error = new Error("WhatsApp no reporta un conflicto con otro navegador.");
+        error.statusCode = 409;
+        throw error;
+    }
+
+    if (manualTakeoverRunning) {
+        const error = new Error("Ya hay una solicitud para usar WhatsApp en este equipo.");
+        error.statusCode = 409;
+        throw error;
+    }
+
+    manualTakeoverRunning = true;
+    manualTakeoverRequestedAt = new Date();
+    lastTakeoverError = null;
+    console.log("Solicitando manualmente usar WhatsApp en este equipo.");
 
     try {
-        return { connected: await client.getState() === "CONNECTED", User };
-    } catch {
-        return { connected: false, User };
+        await client.pupPage.evaluate(() => window.require("WAWebSocketModel").Socket.takeover());
+        return await getStatus();
+    } catch (error) {
+        manualTakeoverRequestedAt = null;
+        lastTakeoverError = error.message;
+        console.error("No fue posible tomar el control manual de WhatsApp:");
+        console.error(error);
+        throw error;
+    } finally {
+        manualTakeoverRunning = false;
     }
 }
 
@@ -534,6 +623,7 @@ module.exports = {
     logout,
     getQr,
     getStatus,
+    requestTakeover,
     saveUser,
     clearUser,
     isConnected

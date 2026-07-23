@@ -27,6 +27,10 @@
         button { background: #2673dd; color: white; }
         button.danger { background: #b83232; }
         button:disabled { opacity: .55; cursor: wait; }
+        #actionMessage { margin: 18px 0 0; padding: 12px 14px; border: 1px solid #36506a; border-radius: 6px; background: #152331; color: #dcecff; }
+        #actionMessage.success { border-color: #287c50; background: #14291f; color: #bce8cd; }
+        #actionMessage.error { border-color: #9c3f3f; background: #301919; color: #ffd0d0; }
+        #actionMessage[hidden] { display: none; }
         #detail { min-height: 24px; margin-top: 18px; color: #9aa8b5; }
         .updated { color: #748392; font-size: 13px; margin-top: 24px; }
         .logs { margin-top: 28px; }
@@ -63,6 +67,7 @@
         <a href="/whatsapp/userdata">Registrar o consultar teléfono</a>
         <a href="/contacts">Contactos frecuentes</a>
         <a href="/whatsapp/status" target="_blank" rel="noopener">Estado de WhatsApp</a>
+        <button id="whatsappTakeoverButton" type="button" hidden>Usar WhatsApp aquí</button>
         <button id="favoriteSyncButton" type="button" disabled>Sincronizar mensajes de favoritos</button>
         <button id="airbnbToggleButton" type="button">Habilitar Airbnb</button>
         <a id="gmailLoginLink" href="/gmail/login" hidden>Conectar Gmail</a>
@@ -72,6 +77,7 @@
         <button id="clearLogsButton" class="danger" type="button">Limpiar logs</button>
         <button id="logoutButton" class="danger" type="button" hidden>Cerrar sesión en WhatsApp</button>
     </nav>
+    <p id="actionMessage" role="status" aria-live="polite" hidden></p>
     <p id="detail"></p>
     <section id="errorLogsSection" class="card logs" hidden>
         <h2>Últimos errores y advertencias</h2>

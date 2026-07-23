@@ -10,9 +10,44 @@ const setStatus = (id, kind, text) => {
         textElement.textContent = text;
 };
 
-const setWhatsAppActions = connected => {
-    document.getElementById("qrLink").hidden = connected;
+const setWhatsAppActions = status => {
+    const connected = status?.connected === true;
+    const conflict = status?.conflict === true;
+    const takeoverButton = document.getElementById("whatsappTakeoverButton");
+
+    document.getElementById("qrLink").hidden = connected || conflict;
     document.getElementById("logoutButton").hidden = !connected;
+    takeoverButton.hidden = status?.canTakeover !== true;
+    takeoverButton.disabled = takeoverButton.dataset.requesting === "true";
+};
+
+const showActionMessage = (text, kind = "info") => {
+    const element = document.getElementById("actionMessage");
+    element.textContent = text;
+    element.className = kind;
+    element.hidden = false;
+};
+
+const renderWhatsAppStatus = status => {
+    if (status?.connected === true) {
+        setStatus("whatsapp", "ok", "Conectado");
+        return;
+    }
+
+    if (status?.conflict === true) {
+        const text = status.takeoverInProgress
+            ? "En uso en otro navegador. Tomando control..."
+            : "En uso en otro navegador";
+        setStatus("whatsapp", "warn", text);
+        return;
+    }
+
+    if (["INITIALIZING", "OPENING", "PAIRING"].includes(status?.state)) {
+        setStatus("whatsapp", "warn", "Conectando...");
+        return;
+    }
+
+    setStatus("whatsapp", "bad", "Desconectado");
 };
 
 const setAirbnbActions = (status, gmailStatus) => {
@@ -70,7 +105,7 @@ const copyLogDetail = async (detail, button) => {
         button.textContent = "Copiado";
         setTimeout(() => { button.textContent = "Copiar detalle"; }, 1500);
     } catch (error) {
-        document.getElementById("detail").textContent = "No fue posible copiar el detalle: " + error.message;
+        showActionMessage("No fue posible copiar el detalle: " + error.message, "error");
     }
 };
 
@@ -159,8 +194,8 @@ async function refreshStatus() {
         const status = await response.json();
 
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
-        setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
-        setWhatsAppActions(status.whatsappConnected);
+        renderWhatsAppStatus(status.whatsapp);
+        setWhatsAppActions(status.whatsapp);
         setFavoriteSyncAction(status.workerRunning, status.whatsappConnected);
         setAirbnbActions(status.airbnb, status.gmail);
         setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
@@ -180,7 +215,7 @@ async function refreshStatus() {
         document.getElementById("updated").textContent = "Actualizado: " + new Date().toLocaleTimeString();
         await refreshErrorLogs();
     } catch (error) {
-        setWhatsAppActions(false);
+        setWhatsAppActions({ connected: false });
         document.getElementById("detail").textContent = "No fue posible actualizar el estado: " + error.message;
     }
 }
@@ -193,7 +228,7 @@ document.getElementById("favoriteSyncButton").addEventListener("click", async ()
     const button = document.getElementById("favoriteSyncButton");
     button.dataset.requesting = "true";
     button.disabled = true;
-    document.getElementById("detail").textContent = "Solicitando la sincronización de mensajes favoritos...";
+    showActionMessage("Solicitando la sincronización de mensajes favoritos...");
 
     try {
         const response = await fetch("/worker-actions/favorite-sync", { method: "POST" });
@@ -202,9 +237,31 @@ document.getElementById("favoriteSyncButton").addEventListener("click", async ()
         if (!response.ok)
             throw new Error(body.error || "HTTP " + response.status);
 
-        document.getElementById("detail").textContent = "Solicitud enviada. El Worker iniciará la sincronización en aproximadamente 30 segundos.";
+        showActionMessage("Solicitud enviada. El Worker iniciará la sincronización en aproximadamente 30 segundos.", "success");
     } catch (error) {
-        document.getElementById("detail").textContent = "No fue posible solicitar la sincronización: " + error.message;
+        showActionMessage("No fue posible solicitar la sincronización: " + error.message, "error");
+    } finally {
+        button.dataset.requesting = "false";
+        await refreshStatus();
+    }
+});
+
+document.getElementById("whatsappTakeoverButton").addEventListener("click", async () => {
+    const button = document.getElementById("whatsappTakeoverButton");
+    button.dataset.requesting = "true";
+    button.disabled = true;
+    showActionMessage("Solicitando usar WhatsApp en este equipo...");
+
+    try {
+        const response = await fetch("/whatsapp/takeover", { method: "POST" });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.error || "HTTP " + response.status);
+
+        showActionMessage("Solicitud enviada. Esperando que WhatsApp cambie la sesión a este equipo.", "success");
+    } catch (error) {
+        showActionMessage("No fue posible usar WhatsApp aquí: " + error.message, "error");
     } finally {
         button.dataset.requesting = "false";
         await refreshStatus();
@@ -226,9 +283,9 @@ document.getElementById("clearLogsButton").addEventListener("click", async () =>
             throw new Error(body.error || "HTTP " + response.status);
 
         renderErrorLogs([]);
-        document.getElementById("detail").textContent = "Todos los logs fueron eliminados.";
+        showActionMessage("Todos los logs fueron eliminados.", "success");
     } catch (error) {
-        document.getElementById("detail").textContent = "No fue posible limpiar los logs: " + error.message;
+        showActionMessage("No fue posible limpiar los logs: " + error.message, "error");
     } finally {
         button.disabled = false;
     }
@@ -250,10 +307,10 @@ document.getElementById("airbnbToggleButton").addEventListener("click", async ()
         if (!response.ok)
             throw new Error(body.message || "HTTP " + response.status);
 
-        document.getElementById("detail").textContent = enabled ? "Airbnb fue habilitado." : "Airbnb fue deshabilitado.";
+        showActionMessage(enabled ? "Airbnb fue habilitado." : "Airbnb fue deshabilitado.", "success");
         await refreshStatus();
     } catch (error) {
-        document.getElementById("detail").textContent = "No fue posible actualizar Airbnb: " + error.message;
+        showActionMessage("No fue posible actualizar Airbnb: " + error.message, "error");
     } finally {
         button.disabled = false;
     }
@@ -262,7 +319,7 @@ document.getElementById("airbnbToggleButton").addEventListener("click", async ()
 document.getElementById("gmailTestButton").addEventListener("click", async () => {
     const button = document.getElementById("gmailTestButton");
     button.disabled = true;
-    document.getElementById("detail").textContent = "Consultando correos recientes de Airbnb en Gmail...";
+    showActionMessage("Consultando correos recientes de Airbnb en Gmail...");
 
     try {
         const response = await fetch("/gmail/airbnb/messages", { cache: "no-store" });
@@ -271,9 +328,9 @@ document.getElementById("gmailTestButton").addEventListener("click", async () =>
         if (!response.ok)
             throw new Error(body.message || "HTTP " + response.status);
 
-        document.getElementById("detail").textContent = `Gmail detectó ${body.length} correo(s) de Airbnb recientes.`;
+        showActionMessage(`Gmail detectó ${body.length} correo(s) de Airbnb recientes.`, "success");
     } catch (error) {
-        document.getElementById("detail").textContent = "No fue posible leer correos Airbnb: " + error.message;
+        showActionMessage("No fue posible leer correos Airbnb: " + error.message, "error");
     } finally {
         button.disabled = false;
     }
@@ -282,7 +339,7 @@ document.getElementById("gmailTestButton").addEventListener("click", async () =>
 document.getElementById("gmailSyncButton").addEventListener("click", async () => {
     const button = document.getElementById("gmailSyncButton");
     button.disabled = true;
-    document.getElementById("detail").textContent = "Sincronizando mensajes Airbnb desde Gmail...";
+    showActionMessage("Sincronizando mensajes Airbnb desde Gmail...");
 
     try {
         const response = await fetch("/gmail/airbnb/sync", { method: "POST" });
@@ -291,9 +348,9 @@ document.getElementById("gmailSyncButton").addEventListener("click", async () =>
         if (!response.ok)
             throw new Error(body.message || "HTTP " + response.status);
 
-        document.getElementById("detail").textContent = `Sincronización completada. Nuevos: ${body.savedCount}. Detectados: ${body.detectedCount}.`;
+        showActionMessage(`Sincronización completada. Nuevos: ${body.savedCount}. Detectados: ${body.detectedCount}.`, "success");
     } catch (error) {
-        document.getElementById("detail").textContent = "No fue posible sincronizar Airbnb desde Gmail: " + error.message;
+        showActionMessage("No fue posible sincronizar Airbnb desde Gmail: " + error.message, "error");
     } finally {
         button.disabled = false;
     }
@@ -313,10 +370,10 @@ document.getElementById("logoutButton").addEventListener("click", async () => {
             throw new Error(body.error || "HTTP " + response.status);
         }
 
-        document.getElementById("detail").textContent = "Sesión cerrada. El gateway se reiniciará para generar un nuevo QR.";
+        showActionMessage("Sesión cerrada. El gateway se reiniciará para generar un nuevo QR.", "success");
         setTimeout(() => window.location.reload(), 5000);
     } catch (error) {
-        document.getElementById("detail").textContent = "No fue posible cerrar la sesión: " + error.message;
+        showActionMessage("No fue posible cerrar la sesión: " + error.message, "error");
         button.disabled = false;
     }
 });

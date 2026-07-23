@@ -50,6 +50,14 @@ app.get("/whatsapp/status", async (req, res) => {
     res.json(await whatsapp.getStatus());
 });
 
+app.post("/whatsapp/takeover", async (req, res) => {
+    try {
+        res.json({ success: true, status: await whatsapp.requestTakeover() });
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    }
+});
+
 app.post("/worker-status", (req, res) => {
     workerStatus.lastHeartbeat = new Date();
     workerStatus.hasPendingMessages = req.body?.hasPendingMessages === true;
@@ -88,6 +96,7 @@ app.get("/app-status-data", async (req, res) => {
         gatewayRunning: true,
         workerRunning,
         whatsappConnected: whatsappStatus.connected === true,
+        whatsapp: whatsappStatus,
         airbnb: airbnbStatus,
         gmail: gmailStatus,
         userPhoneRegistered: Boolean(whatsappStatus.User?.Phone?.trim()),
