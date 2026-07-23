@@ -603,15 +603,27 @@ public class AlexaRequestRouter
             return AlexaResponseFactory.Speak($"No tengo mensajes guardados de {contact.Name}.", state);
 
         var speech = new StringBuilder($"Estos son los últimos {messages.Count} mensajes de {contact.Name}. ");
+        var orderedMessages = messages
+            .OrderBy(GetReceivedAtLocalTime)
+            .GroupBy(message => GetReceivedAtLocalTime(message).Date);
+        var messageIndex = 1;
 
-        for (var index = 0; index < messages.Count; index++)
+        foreach (var dateGroup in orderedMessages)
         {
-            speech.Append($"Mensaje {index + 1}. {MessageTextSanitizer.ReplaceLinksForSpeech(messages[index].Text, 1200)}. ");
-            await _conversation.MarkAsReadAsync(messages[index].Id);
+            speech.Append($"Recibidos el {dateGroup.Key.ToString("d 'de' MMMM 'de' yyyy", CultureInfo.GetCultureInfo("es-MX"))}. ");
+
+            foreach (var message in dateGroup)
+            {
+                speech.Append($"Mensaje {messageIndex}. {MessageTextSanitizer.ReplaceLinksForSpeech(message.Text, 1200)}. ");
+                await _conversation.MarkAsReadAsync(message.Id);
+                messageIndex++;
+            }
         }
 
         return AlexaResponseFactory.Speak(speech.ToString(), state);
     }
+
+    private static DateTime GetReceivedAtLocalTime(MessageDto message) => AppClock.ToLocalTime(message.ReceivedAt ?? message.Date);
 
     private static void ClearLastMessagesContactState(ConversationState state)
     {

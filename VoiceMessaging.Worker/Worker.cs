@@ -13,7 +13,7 @@ public class Worker : BackgroundService
 {
     private static readonly TimeSpan ReadReconciliationInterval = TimeSpan.FromHours(4);
     private static readonly TimeSpan ReadReconciliationRetryInterval = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan FavoriteMessagesSyncInterval = TimeSpan.FromHours(4);
+    private static readonly TimeSpan FavoriteMessagesSyncInterval = TimeSpan.FromHours(3);
     private static readonly TimeSpan FavoriteMessagesSyncRetryInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(50);
     private static readonly TimeSpan StartupReadinessCheckInterval = TimeSpan.FromSeconds(5);
@@ -119,6 +119,12 @@ public class Worker : BackgroundService
                 var restartFavoriteSyncCompleted = whatsAppConnected && await whatsAppProcessor.SyncFavoriteContactMessagesAsync(stoppingToken);
                 nextReadReconciliationAt = DateTime.UtcNow.Add(restartReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
                 nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(restartFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
+            }
+
+            if (await whatsApp.ConsumeFavoriteMessagesSyncRequestAsync(stoppingToken))
+            {
+                _logger.LogInformation("Se recibió una solicitud manual para sincronizar los mensajes de contactos favoritos.");
+                nextFavoriteMessagesSyncAt = DateTime.UtcNow;
             }
 
             if (DateTime.UtcNow >= nextErrorLogReportCheckAt)

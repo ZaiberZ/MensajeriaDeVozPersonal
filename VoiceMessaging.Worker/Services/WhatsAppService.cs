@@ -100,6 +100,29 @@ public class WhatsAppService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<bool> ConsumeFavoriteMessagesSyncRequestAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync("/worker-actions/favorite-sync/consume", null, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            var action = await response.Content.ReadFromJsonAsync<WorkerActionResponseDto>(cancellationToken: cancellationToken);
+            return action?.Requested == true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            return false;
+        }
+    }
+
     public async Task<GatewayLogsResponseDto> GetUnreportedErrorLogsAsync(int limit, CancellationToken cancellationToken)
     {
         var response = await _httpClient.GetAsync($"/logs/unreported-errors?limit={limit}", cancellationToken);

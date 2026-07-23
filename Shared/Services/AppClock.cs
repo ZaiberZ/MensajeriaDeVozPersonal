@@ -9,6 +9,18 @@ public static class AppClock
     public static DateTime Now => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, timeZone).DateTime;
     public static string TimeZoneId => timeZone.Id;
 
+    public static DateTime ToLocalTime(DateTime value)
+    {
+        var utcValue = value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+
+        return TimeZoneInfo.ConvertTimeFromUtc(utcValue, timeZone);
+    }
+
     public static void Configure(string? timeZoneId)
     {
         timeZone = ResolveTimeZone(string.IsNullOrWhiteSpace(timeZoneId)

@@ -16,6 +16,7 @@ const workerStatus = {
     lastHeartbeat: null,
     hasPendingMessages: false
 };
+let favoriteMessagesSyncRequested = false;
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
 const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000; // 1 hr
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
@@ -23,6 +24,11 @@ const dataDirectory = path.join(dataRoot, "VoiceMessaging");
 const pendingAirbnbNotificationPath = path.join(dataDirectory, "pending-airbnb-notification.json");
 let airbnbEmailNotificationRunning = false;
 let pendingAirbnbNotification = readPendingAirbnbNotification();
+
+function isWorkerRunning() {
+    return workerStatus.lastHeartbeat !== null &&
+        Date.now() - workerStatus.lastHeartbeat.getTime() <= workerHeartbeatTimeoutMs;
+}
 
 app.use(express.static(__dirname));
 app.use(cors());
@@ -51,16 +57,32 @@ app.post("/worker-status", (req, res) => {
     res.json({ success: true });
 });
 
+app.post("/worker-actions/favorite-sync", async (req, res) => {
+    if (!isWorkerRunning())
+        return res.status(503).json({ success: false, error: "El Worker no está disponible." });
+
+    if (!(await whatsapp.getStatus()).connected)
+        return res.status(409).json({ success: false, error: "WhatsApp todavía no está conectado." });
+
+    favoriteMessagesSyncRequested = true;
+    res.status(202).json({ success: true });
+});
+
+app.post("/worker-actions/favorite-sync/consume", (req, res) => {
+    const requested = favoriteMessagesSyncRequested;
+    favoriteMessagesSyncRequested = false;
+    res.json({ requested });
+});
+
 app.get("/app-status-data", async (req, res) => {
-    const whatsappStatus = whatsapp.isConnected();
+    const whatsappStatus = await whatsapp.getStatus();
     const airbnbStatus = await getAirbnbStatus();
     const gmailStatus = await gmail.getStatus().catch(error => ({
         enabled: true,
         authenticated: false,
         message: error.message
     }));
-    const workerRunning = workerStatus.lastHeartbeat !== null &&
-        Date.now() - workerStatus.lastHeartbeat.getTime() <= workerHeartbeatTimeoutMs;
+    const workerRunning = isWorkerRunning();
 
     res.json({
         gatewayRunning: true,

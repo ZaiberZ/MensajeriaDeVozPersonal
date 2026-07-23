@@ -54,6 +54,16 @@ const formatLogDate = value => {
     return date.toLocaleString();
 };
 
+const setFavoriteSyncAction = (workerRunning, whatsappConnected) => {
+    const button = document.getElementById("favoriteSyncButton");
+    button.disabled = !workerRunning || !whatsappConnected || button.dataset.requesting === "true";
+    button.title = !workerRunning
+        ? "El Worker no está disponible."
+        : !whatsappConnected
+            ? "WhatsApp debe estar conectado."
+            : "Solicitar al Worker la sincronización inmediata.";
+};
+
 const copyLogDetail = async (detail, button) => {
     try {
         await navigator.clipboard.writeText(detail);
@@ -151,6 +161,7 @@ async function refreshStatus() {
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         setStatus("whatsapp", status.whatsappConnected ? "ok" : "bad", status.whatsappConnected ? "Conectado" : "Desconectado");
         setWhatsAppActions(status.whatsappConnected);
+        setFavoriteSyncAction(status.workerRunning, status.whatsappConnected);
         setAirbnbActions(status.airbnb, status.gmail);
         setStatus("userPhone", status.userPhoneRegistered ? "ok" : "warn", status.userPhoneRegistered ? "Registrado" : "Sin registrar");
 
@@ -176,6 +187,28 @@ async function refreshStatus() {
 
 document.getElementById("viewAllLogsButton").addEventListener("click", () => {
     window.open("/logs?limit=1000", "_blank", "noopener");
+});
+
+document.getElementById("favoriteSyncButton").addEventListener("click", async () => {
+    const button = document.getElementById("favoriteSyncButton");
+    button.dataset.requesting = "true";
+    button.disabled = true;
+    document.getElementById("detail").textContent = "Solicitando la sincronización de mensajes favoritos...";
+
+    try {
+        const response = await fetch("/worker-actions/favorite-sync", { method: "POST" });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.error || "HTTP " + response.status);
+
+        document.getElementById("detail").textContent = "Solicitud enviada. El Worker iniciará la sincronización en aproximadamente 30 segundos.";
+    } catch (error) {
+        document.getElementById("detail").textContent = "No fue posible solicitar la sincronización: " + error.message;
+    } finally {
+        button.dataset.requesting = "false";
+        await refreshStatus();
+    }
 });
 
 document.getElementById("clearLogsButton").addEventListener("click", async () => {
