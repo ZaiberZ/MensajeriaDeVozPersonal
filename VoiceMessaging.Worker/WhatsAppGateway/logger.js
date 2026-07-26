@@ -4,7 +4,7 @@ const path = require("path");
 const util = require("util");
 
 const MAX_LOG_ENTRIES = 1000;
-const MAX_DUPLICATE_ENTRIES = 5;
+const MAX_DETAIL_VARIANTS_PER_MESSAGE = 3;
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
 const logFilePath = path.join(dataDirectory, "gateway-logs.json");
@@ -88,19 +88,28 @@ function writeLog(level, message, detail = null, source = "WhatsAppGateway") {
     try {
         const logs = readLogs();
         const timestamp = localIsoTimestamp();
-        const duplicateIndexes = [];
+        const exactDuplicateIndexes = [];
+        const variantIndexes = new Map();
 
         for (let index = 0; index < logs.length; index++) {
             const log = logs[index];
 
-            if (log.level === level && log.source === source && log.message === message)
-                duplicateIndexes.push(index);
+            if (log.level !== level || log.source !== source || log.message !== message)
+                continue;
+
+            const detailKey = log.detail || null;
+            const indexes = variantIndexes.get(detailKey) || [];
+            indexes.push(index);
+            variantIndexes.set(detailKey, indexes);
+
+            if (detailKey === (detail || null))
+                exactDuplicateIndexes.push(index);
         }
 
-        const lastDuplicateIndex = duplicateIndexes[duplicateIndexes.length - 1];
-        const previousAttemptCount = lastDuplicateIndex === undefined
+        const lastExactDuplicateIndex = exactDuplicateIndexes[exactDuplicateIndexes.length - 1];
+        const previousAttemptCount = lastExactDuplicateIndex === undefined
             ? 0
-            : logs[lastDuplicateIndex].attemptCount;
+            : Number(logs[lastExactDuplicateIndex].attemptCount || 1);
 
         const entry = {
             id: createLogId(),
@@ -115,18 +124,27 @@ function writeLog(level, message, detail = null, source = "WhatsAppGateway") {
         };
         let savedEntry = entry;
 
-        if (duplicateIndexes.length < MAX_DUPLICATE_ENTRIES) {
-            logs.push(entry);
-        } else {
+        if (lastExactDuplicateIndex !== undefined) {
             savedEntry = {
-                ...logs[lastDuplicateIndex],
-                detail,
+                ...logs[lastExactDuplicateIndex],
                 attemptCount: entry.attemptCount,
                 lastAttemptAt: timestamp,
                 reportedAt: null
             };
-            logs.splice(lastDuplicateIndex, 1);
+            for (const index of [...exactDuplicateIndexes].sort((left, right) => right - left))
+                logs.splice(index, 1);
+
             logs.push(savedEntry);
+        } else {
+            if (variantIndexes.size >= MAX_DETAIL_VARIANTS_PER_MESSAGE) {
+                const oldestVariantIndexes = [...variantIndexes.values()]
+                    .sort((left, right) => left[0] - right[0])[0];
+
+                for (const index of [...oldestVariantIndexes].sort((left, right) => right - left))
+                    logs.splice(index, 1);
+            }
+
+            logs.push(entry);
         }
 
         fs.writeFileSync(logFilePath, JSON.stringify(logs.slice(-MAX_LOG_ENTRIES), null, 2), "utf8");

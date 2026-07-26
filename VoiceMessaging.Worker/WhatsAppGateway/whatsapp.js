@@ -59,6 +59,8 @@ let healthProbeTimer = null;
 let healthProbeRunning = false;
 let extendedRecoveryTimer = null;
 let lastDiagnosticLogAt = 0;
+const diagnosticCycleId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+let diagnosticAttempt = 0;
 const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "SupportEmail": "", "SecondAribnbPhone": "", IsRegistered: false };
 let health = loadHealth();
 
@@ -265,7 +267,10 @@ async function logFunctionalDiagnostics(context, error) {
         return;
 
     lastDiagnosticLogAt = Date.now();
+    diagnosticAttempt++;
     const diagnostics = {
+        recoveryCycleId: diagnosticCycleId,
+        diagnosticAttempt,
         context,
         capturedAt: new Date().toISOString(),
         connectionState,
@@ -285,19 +290,23 @@ async function logFunctionalDiagnostics(context, error) {
         errorMessage: String(error?.message || error || "Error desconocido")
     };
 
-    try {
-        diagnostics.clientState = await client.getState();
-    } catch (stateError) {
-        diagnostics.clientStateError = String(stateError?.message || stateError);
-    }
+    diagnostics.pageClosed = client.pupPage?.isClosed() ?? null;
+    diagnostics.pageUrl = client.pupPage?.url() || null;
+    diagnostics.browserConnected = client.pupBrowser?.isConnected() ?? null;
 
-    try {
-        diagnostics.pageClosed = client.pupPage?.isClosed() ?? null;
-        diagnostics.pageUrl = client.pupPage?.url() || null;
-        diagnostics.browserConnected = client.pupBrowser?.isConnected() ?? null;
+    const withTimeout = (promise, label) => Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} excedió 3 segundos.`)), 3000))
+    ]);
+    const inspections = [
+        withTimeout(client.getState(), "La consulta del estado").then(
+            value => { diagnostics.clientState = value; },
+            stateError => { diagnostics.clientStateError = String(stateError?.message || stateError); })
+    ];
 
-        if (client.pupPage && !diagnostics.pageClosed) {
-            Object.assign(diagnostics, await client.pupPage.evaluate(() => ({
+    if (client.pupPage && !diagnostics.pageClosed) {
+        inspections.push(withTimeout(
+            client.pupPage.evaluate(() => ({
                 navigatorOnline: navigator.onLine,
                 documentReadyState: document.readyState,
                 whatsappVersion: window.Debug?.VERSION || null,
@@ -305,14 +314,14 @@ async function logFunctionalDiagnostics(context, error) {
                 hasChatStore: Boolean(window.Store?.Chat),
                 hasWebSocketModel: Boolean(window.Store?.AppState || window.Store?.Conn),
                 serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller)
-            })));
-        }
-    } catch (pageError) {
-        diagnostics.pageInspectionError = String(pageError?.message || pageError);
+            })),
+            "La inspección de la página").then(
+                value => { Object.assign(diagnostics, value); },
+                pageError => { diagnostics.pageInspectionError = String(pageError?.message || pageError); }));
     }
 
-    console.error("Diagnóstico funcional de WhatsApp (no contiene mensajes ni contactos):");
-    console.error(JSON.stringify(diagnostics, null, 2));
+    await Promise.all(inspections);
+    console.error("Diagnóstico funcional de WhatsApp (no contiene mensajes ni contactos):", JSON.stringify(diagnostics, null, 2));
 }
 
 async function probeFunctionalHealth() {
@@ -326,8 +335,8 @@ async function probeFunctionalHealth() {
         recordSuccessfulRead();
         console.log("La comprobación automática de WhatsApp fue exitosa. El estado de conexión volvió a ser saludable.");
     } catch (error) {
-        recordFunctionalFailure(error);
         await logFunctionalDiagnostics("comprobacion-automatica", error);
+        recordFunctionalFailure(error);
         console.warn("La comprobación automática de WhatsApp todavía no puede leer los chats:", error);
     } finally {
         healthProbeRunning = false;
@@ -540,8 +549,8 @@ async function getUnreadMessages() {
         chats = await client.getChats();
         recordSuccessfulRead();
     } catch (error) {
-        recordFunctionalFailure(error);
         await logFunctionalDiagnostics("recuperacion-mensajes-no-leidos", error);
+        recordFunctionalFailure(error);
         console.warn("WhatsApp no está disponible temporalmente para consultar los chats:", error);
 
         const unavailableError = new Error("WhatsApp no está disponible temporalmente.");
