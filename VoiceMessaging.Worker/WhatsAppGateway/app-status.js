@@ -77,7 +77,7 @@ const renderWhatsAppStatus = status => {
     }
 
     if (status?.degraded === true) {
-        setStatus("whatsapp", "warn", `Conexión degradada (${status.consecutiveReadFailures || 0} fallos)`);
+        setStatus("whatsapp", "warn", `WhatsApp no responde; comprobando sin reiniciar (${status.consecutiveReadFailures || 0} fallos)`);
         return;
     }
 

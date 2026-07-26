@@ -6,6 +6,7 @@ const path = require("path");
 const dns = require("dns");
 const { getChromePath } = require("./chrome-path");
 const logger = require("./logger");
+const whatsappWebJsVersion = require("whatsapp-web.js/package.json").version;
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
@@ -32,6 +33,7 @@ const hasSession = fs.existsSync(sessionPath);
 
 let initialized = false;
 let connected = false;
+let clientReady = false;
 let connectionState = "INITIALIZING";
 let conflictDetectedAt = null;
 let manualTakeoverRunning = false;
@@ -46,6 +48,7 @@ const initializationMaxAttempts = 5;
 const sendRetryDelayMs = 5 * 1000;
 const sendMaxAttempts = 3;
 const functionalFailureThreshold = 3;
+const automaticFunctionalRestartsEnabled = false;
 const recoveryWindowMs = 30 * 60 * 1000;
 const maxRecoveryRestarts = 3;
 const healthProbeIntervalMs = 60 * 1000;
@@ -61,6 +64,14 @@ let extendedRecoveryTimer = null;
 let lastDiagnosticLogAt = 0;
 const diagnosticCycleId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 let diagnosticAttempt = 0;
+let lastSkippedChatModelsSignature = null;
+let readyAt = null;
+let diagnosticsPage = null;
+const recentPageErrors = [];
+const recentConsoleErrors = [];
+const recentFailedRequests = [];
+const recentNavigations = [];
+const maxDiagnosticEvents = 20;
 const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "SupportEmail": "", "SecondAribnbPhone": "", IsRegistered: false };
 let health = loadHealth();
 
@@ -118,6 +129,11 @@ function loadHealth() {
             savedHealth.relinkReason = authenticationFailure ? "AUTH_FAILURE" : null;
             savedHealth.relinkRequired = authenticationFailure;
             savedHealth.recoveryExhausted = !authenticationFailure;
+        }
+
+        if (!automaticFunctionalRestartsEnabled) {
+            savedHealth.recoveryExhausted = false;
+            savedHealth.recoveryRestarts = [];
         }
 
         return savedHealth;
@@ -256,10 +272,96 @@ function recordFunctionalFailure(error, failureCount = 1) {
     health.lastFailureAt = new Date().toISOString();
     health.lastFailure = String(error?.message || error || "Error desconocido");
     health.degraded = health.consecutiveFailures >= functionalFailureThreshold;
+    health.recoveryExhausted = false;
+    health.recoveryRestarts = [];
     saveHealth();
 
-    if (health.degraded)
+    if (health.degraded && automaticFunctionalRestartsEnabled)
         scheduleFunctionalRecovery();
+}
+
+function sanitizeDiagnosticText(value, maxLength = 1500) {
+    return String(value || "")
+        .replace(/https?:\/\/[^\s"'<>]+/gi, match => {
+            try {
+                return `${new URL(match).origin}/[ruta-omitida]`;
+            } catch {
+                return "[url-omitida]";
+            }
+        })
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[correo-omitido]")
+        .replace(/\+?\d[\d\s().-]{5,}\d/g, "[numero-omitido]")
+        .replace(/\b[A-Za-z0-9_-]{24,}\b/g, "[credencial-omitida]")
+        .slice(0, maxLength);
+}
+
+function appendDiagnosticEvent(collection, event) {
+    collection.push(event);
+
+    if (collection.length > maxDiagnosticEvents)
+        collection.splice(0, collection.length - maxDiagnosticEvents);
+}
+
+function attachBrowserDiagnostics() {
+    const page = client.pupPage;
+
+    if (!page || page === diagnosticsPage)
+        return;
+
+    diagnosticsPage = page;
+    page.on("pageerror", error => {
+        appendDiagnosticEvent(recentPageErrors, {
+            at: new Date().toISOString(),
+            name: sanitizeDiagnosticText(error?.name, 100),
+            message: sanitizeDiagnosticText(error?.message || error),
+            stack: sanitizeDiagnosticText(error?.stack)
+        });
+    });
+    page.on("console", message => {
+        if (!["error", "warning", "warn"].includes(message.type()))
+            return;
+
+        const location = message.location();
+        appendDiagnosticEvent(recentConsoleErrors, {
+            at: new Date().toISOString(),
+            type: message.type(),
+            text: sanitizeDiagnosticText(message.text()),
+            source: sanitizeDiagnosticText(location?.url, 300)
+        });
+    });
+    page.on("requestfailed", request => {
+        let host = "[host-no-disponible]";
+
+        try {
+            host = new URL(request.url()).host;
+        } catch {
+            // La URL completa se omite para evitar registrar datos privados.
+        }
+
+        appendDiagnosticEvent(recentFailedRequests, {
+            at: new Date().toISOString(),
+            host,
+            resourceType: request.resourceType(),
+            errorText: sanitizeDiagnosticText(request.failure()?.errorText, 300)
+        });
+    });
+    page.on("framenavigated", frame => {
+        if (frame !== page.mainFrame())
+            return;
+
+        let origin = "[origen-no-disponible]";
+
+        try {
+            origin = new URL(frame.url()).origin;
+        } catch {
+            // No se conserva la URL si no puede reducirse a un origen seguro.
+        }
+
+        appendDiagnosticEvent(recentNavigations, {
+            at: new Date().toISOString(),
+            origin
+        });
+    });
 }
 
 async function logFunctionalDiagnostics(context, error) {
@@ -273,6 +375,13 @@ async function logFunctionalDiagnostics(context, error) {
         diagnosticAttempt,
         context,
         capturedAt: new Date().toISOString(),
+        readyAt: readyAt?.toISOString() || null,
+        millisecondsSinceReady: readyAt ? Date.now() - readyAt.getTime() : null,
+        nodeVersion: process.version,
+        whatsappWebJsVersion,
+        chromiumVersion: null,
+        processUptimeSeconds: Math.round(process.uptime()),
+        processMemoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
         connectionState,
         transportConnected: connected,
         navigatorOnline: null,
@@ -284,12 +393,25 @@ async function logFunctionalDiagnostics(context, error) {
         whatsappVersion: null,
         hasWWebJS: null,
         hasGetChatsFunction: null,
+        safeGetChatsWrapperInstalled: null,
+        skippedChatModels: null,
         hasWhatsAppStore: null,
         hasChatStore: null,
         hasWebSocketModel: null,
+        socketState: null,
+        socketHasSynced: null,
+        socketReadyState: null,
         serviceWorkerControlled: null,
+        indexedDbDatabaseCount: null,
+        storageUsageBytes: null,
+        storageQuotaBytes: null,
+        browserSideGetChats: null,
+        recentPageErrors: [...recentPageErrors],
+        recentConsoleErrors: [...recentConsoleErrors],
+        recentFailedRequests: [...recentFailedRequests],
+        recentNavigations: [...recentNavigations],
         errorName: error?.name || null,
-        errorMessage: String(error?.message || error || "Error desconocido")
+        errorMessage: sanitizeDiagnosticText(error?.message || error || "Error desconocido")
     };
 
     diagnostics.pageClosed = client.pupPage?.isClosed() ?? null;
@@ -303,25 +425,105 @@ async function logFunctionalDiagnostics(context, error) {
     const inspections = [
         withTimeout(client.getState(), "La consulta del estado").then(
             value => { diagnostics.clientState = value; },
-            stateError => { diagnostics.clientStateError = String(stateError?.message || stateError); })
+            stateError => { diagnostics.clientStateError = sanitizeDiagnosticText(stateError?.message || stateError); }),
+        withTimeout(client.pupBrowser?.version() ?? Promise.resolve(null), "La consulta de Chromium").then(
+            value => { diagnostics.chromiumVersion = value; },
+            browserError => { diagnostics.chromiumVersionError = sanitizeDiagnosticText(browserError?.message || browserError); })
     ];
 
     if (client.pupPage && !diagnostics.pageClosed) {
         inspections.push(withTimeout(
-            client.pupPage.evaluate(() => ({
-                navigatorOnline: navigator.onLine,
-                documentReadyState: document.readyState,
-                whatsappVersion: window.Debug?.VERSION || null,
-                hasWWebJS: Boolean(window.WWebJS),
-                hasGetChatsFunction: typeof window.WWebJS?.getChats === "function",
-                hasWhatsAppStore: Boolean(window.Store),
-                hasChatStore: Boolean(window.Store?.Chat),
-                hasWebSocketModel: Boolean(window.Store?.AppState || window.Store?.Conn),
-                serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller)
-            })),
+            client.pupPage.evaluate(async () => {
+                const result = {
+                    navigatorOnline: navigator.onLine,
+                    documentReadyState: document.readyState,
+                    whatsappVersion: window.Debug?.VERSION || null,
+                    hasWWebJS: Boolean(window.WWebJS),
+                    hasGetChatsFunction: typeof window.WWebJS?.getChats === "function",
+                    safeGetChatsWrapperInstalled: window.WWebJS?.__voiceMessagingSafeGetChats === true,
+                    skippedChatModels: window.WWebJS?.__voiceMessagingLastGetChatsFailures || null,
+                    hasWhatsAppStore: Boolean(window.Store),
+                    hasChatStore: Boolean(window.Store?.Chat),
+                    hasWebSocketModel: false,
+                    socketState: null,
+                    socketHasSynced: null,
+                    socketReadyState: null,
+                    serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
+                    indexedDbDatabaseCount: null,
+                    storageUsageBytes: null,
+                    storageQuotaBytes: null,
+                    browserSideGetChats: null
+                };
+
+                try {
+                    const socket = window.require?.("WAWebSocketModel")?.Socket;
+                    result.hasWebSocketModel = Boolean(socket);
+                    result.socketState = socket?.state ?? null;
+                    result.socketHasSynced = socket?.hasSynced ?? null;
+                    result.socketReadyState = socket?.socket?.readyState ?? socket?.ws?.readyState ?? null;
+                } catch (socketError) {
+                    result.socketInspectionError = String(socketError?.message || socketError).slice(0, 500);
+                }
+
+                try {
+                    const estimate = await navigator.storage?.estimate?.();
+                    result.storageUsageBytes = estimate?.usage ?? null;
+                    result.storageQuotaBytes = estimate?.quota ?? null;
+                    const databases = await indexedDB.databases?.();
+                    result.indexedDbDatabaseCount = Array.isArray(databases) ? databases.length : null;
+                } catch (storageError) {
+                    result.storageInspectionError = String(storageError?.message || storageError).slice(0, 500);
+                }
+
+                try {
+                    const chats = await window.WWebJS.getChats();
+                    result.browserSideGetChats = {
+                        succeeded: true,
+                        resultCount: Array.isArray(chats) ? chats.length : null
+                    };
+                } catch (getChatsError) {
+                    const ownProperties = {};
+
+                    for (const propertyName of Object.getOwnPropertyNames(getChatsError || {}).slice(0, 20)) {
+                        try {
+                            const propertyValue = getChatsError[propertyName];
+                            ownProperties[propertyName] = typeof propertyValue === "object"
+                                ? Object.prototype.toString.call(propertyValue)
+                                : String(propertyValue).slice(0, 1000);
+                        } catch {
+                            ownProperties[propertyName] = "[no-legible]";
+                        }
+                    }
+
+                    result.browserSideGetChats = {
+                        succeeded: false,
+                        constructorName: getChatsError?.constructor?.name || null,
+                        name: getChatsError?.name || null,
+                        message: String(getChatsError?.message || getChatsError || "").slice(0, 1000),
+                        stack: String(getChatsError?.stack || "").slice(0, 4000),
+                        ownProperties
+                    };
+                }
+
+                return result;
+            }),
             "La inspección de la página").then(
-                value => { Object.assign(diagnostics, value); },
-                pageError => { diagnostics.pageInspectionError = String(pageError?.message || pageError); }));
+                value => {
+                    if (value?.browserSideGetChats?.message)
+                        value.browserSideGetChats.message = sanitizeDiagnosticText(value.browserSideGetChats.message);
+
+                    if (value?.browserSideGetChats?.stack)
+                        value.browserSideGetChats.stack = sanitizeDiagnosticText(value.browserSideGetChats.stack, 4000);
+
+                    if (value?.browserSideGetChats?.ownProperties) {
+                        for (const propertyName of Object.keys(value.browserSideGetChats.ownProperties))
+                            value.browserSideGetChats.ownProperties[propertyName] =
+                                sanitizeDiagnosticText(value.browserSideGetChats.ownProperties[propertyName], 1000);
+                    }
+
+                    Object.assign(diagnostics, value);
+                },
+                pageError => { diagnostics.pageInspectionError = sanitizeDiagnosticText(pageError?.message || pageError); }));
     }
 
     await Promise.all(inspections);
@@ -336,6 +538,7 @@ async function probeFunctionalHealth() {
 
     try {
         await client.getChats();
+        await logSkippedChatModelsIfAny("la comprobación automática");
         recordSuccessfulRead();
         console.log("La comprobación automática de WhatsApp fue exitosa. El estado de conexión volvió a ser saludable.");
     } catch (error) {
@@ -358,11 +561,72 @@ function getQr() {
     return lastQr;
 }
 
+async function installSafeGetChatsWrapper() {
+    if (!client.pupPage || client.pupPage.isClosed())
+        return false;
+
+    return await client.pupPage.evaluate(() => {
+        if (!window.WWebJS || typeof window.WWebJS.getChatModel !== "function")
+            return false;
+
+        if (window.WWebJS.__voiceMessagingSafeGetChats)
+            return true;
+
+        window.WWebJS.getChats = async () => {
+            const chats = window.require("WAWebCollections").Chat.getModelsArray();
+            const results = await Promise.all(chats.map(async chat => {
+                try {
+                    return { model: await window.WWebJS.getChatModel(chat), error: null };
+                } catch (error) {
+                    return {
+                        model: null,
+                        error: {
+                            name: String(error?.name || error?.constructor?.name || "Error").slice(0, 100),
+                            message: String(error?.message || error || "Error desconocido").slice(0, 500)
+                        }
+                    };
+                }
+            }));
+            const failures = results.filter(result => result.error).map(result => result.error);
+            window.WWebJS.__voiceMessagingLastGetChatsFailures = {
+                count: failures.length,
+                errors: failures.slice(0, 5)
+            };
+
+            return results.map(result => result.model).filter(Boolean);
+        };
+        window.WWebJS.__voiceMessagingSafeGetChats = true;
+        window.WWebJS.__voiceMessagingLastGetChatsFailures = { count: 0, errors: [] };
+        return true;
+    });
+}
+
+async function logSkippedChatModelsIfAny(context) {
+    if (!client.pupPage || client.pupPage.isClosed())
+        return;
+
+    const failures = await client.pupPage.evaluate(() =>
+        window.WWebJS?.__voiceMessagingLastGetChatsFailures || null).catch(() => null);
+
+    if (!failures?.count)
+        return;
+
+    const signature = JSON.stringify(failures);
+
+    if (signature === lastSkippedChatModelsSignature)
+        return;
+
+    lastSkippedChatModelsSignature = signature;
+    console.warn(
+        `WhatsApp omitió ${failures.count} chat(s) que no pudo leer durante ${context}; los demás chats continuarán procesándose.`,
+        signature);
+}
+
 function updateConnectionState(state) {
     const normalizedState = String(state || "UNKNOWN").toUpperCase();
     const previousState = connectionState;
     connectionState = normalizedState;
-    connected = normalizedState === "CONNECTED";
+    connected = normalizedState === "CONNECTED" && clientReady;
 
     if (normalizedState === "CONFLICT") {
         if (!conflictDetectedAt) {
@@ -391,12 +655,23 @@ client.on("qr", async (qr) => {
 });
 
 client.on("ready", async () => {
+    clientReady = false;
     updateConnectionState("CONNECTED");
+    readyAt = new Date();
     lastQr = null;
     User.IsRegistered = true;
     fs.writeFileSync(readyFilePath, new Date().toISOString(), "utf8");
 
-    console.log("WhatsApp conectado.");
+    const safeGetChatsInstalled = await installSafeGetChatsWrapper().catch(error => {
+        console.error("No fue posible instalar el aislamiento de chats defectuosos:");
+        console.error(error);
+        return false;
+    });
+
+    clientReady = true;
+    updateConnectionState("CONNECTED");
+    console.log(`WhatsApp conectado. Aislamiento de chats defectuosos: ${safeGetChatsInstalled ? "activo" : "no disponible"}.`);
+    attachBrowserDiagnostics();
     startFunctionalHealthProbe();
 
     try {
@@ -422,6 +697,7 @@ client.on("change_state", state => {
 });
 
 client.on("auth_failure", message => {
+    clientReady = false;
     health.degraded = true;
     health.relinkRequired = true;
     health.relinkReason = "AUTH_FAILURE";
@@ -434,6 +710,7 @@ client.on("auth_failure", message => {
 });
 
 client.on("disconnected", async reason => {
+    clientReady = false;
     updateConnectionState(reason || "DISCONNECTED");
     User.IsRegistered = false;
 
@@ -551,6 +828,7 @@ async function getUnreadMessages() {
 
     try {
         chats = await client.getChats();
+        await logSkippedChatModelsIfAny("la recuperación de mensajes no leídos");
         recordSuccessfulRead();
     } catch (error) {
         await logFunctionalDiagnostics("recuperacion-mensajes-no-leidos", error);
@@ -842,6 +1120,7 @@ async function logout() {
             await fs.promises.rm(sessionPath, { recursive: true, force: true, maxRetries: 4, retryDelay: 200 });
         }
     } finally {
+        clientReady = false;
         connected = false;
         lastQr = null;
         User.IsRegistered = false;
@@ -1012,6 +1291,7 @@ async function initialize() {
             await client.initialize();
             return;
         } catch (error) {
+            clientReady = false;
             connected = false;
 
             console.error(`Error inicializando WhatsApp en el intento ${attempt} de ${initializationMaxAttempts}:`);
