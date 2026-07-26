@@ -7,6 +7,7 @@ public static class AppClock
     private static TimeZoneInfo timeZone = ResolveTimeZone(Environment.GetEnvironmentVariable(EnvironmentVariableName) ?? DefaultTimeZoneId);
 
     public static DateTime Now => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, timeZone).DateTime;
+    public static DateTimeOffset NowOffset => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, timeZone);
     public static string TimeZoneId => timeZone.Id;
 
     public static DateTime ToLocalTime(DateTime value)
@@ -19,6 +20,11 @@ public static class AppClock
         };
 
         return TimeZoneInfo.ConvertTimeFromUtc(utcValue, timeZone);
+    }
+
+    public static DateTimeOffset ToLocalTime(DateTimeOffset value)
+    {
+        return TimeZoneInfo.ConvertTime(value, timeZone);
     }
 
     public static void Configure(string? timeZoneId)

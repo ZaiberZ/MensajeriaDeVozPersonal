@@ -8,7 +8,7 @@ public class GatewayLogDto
     public string Id { get; set; } = "";
 
     [JsonPropertyName("timestamp")]
-    public DateTime Timestamp { get; set; }
+    public DateTimeOffset Timestamp { get; set; }
 
     [JsonPropertyName("level")]
     public string Level { get; set; } = "";
@@ -26,7 +26,7 @@ public class GatewayLogDto
     public int AttemptCount { get; set; } = 1;
 
     [JsonPropertyName("lastAttemptAt")]
-    public DateTime LastAttemptAt { get; set; }
+    public DateTimeOffset LastAttemptAt { get; set; }
 
     [JsonPropertyName("reportedAt")]
     public DateTime? ReportedAt { get; set; }

@@ -32,6 +32,33 @@ const showActionMessage = (text, kind = "info") => {
 };
 
 const expandedLogIds = new Set();
+const pendingPanelLogKey = "voiceMessaging.pendingPanelLog";
+
+async function reportPendingPanelLog() {
+    const pendingLog = window.localStorage.getItem(pendingPanelLogKey);
+
+    if (!pendingLog)
+        return;
+
+    try {
+        const detail = JSON.parse(pendingLog);
+        const response = await fetch("/logs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                level: "warning",
+                source: "AppStatus",
+                message: "El panel perdió la respuesta HTTP mientras solicitaba reiniciar WhatsAppGateway.",
+                detail: JSON.stringify(detail)
+            })
+        });
+
+        if (response.ok)
+            window.localStorage.removeItem(pendingPanelLogKey);
+    } catch (error) {
+        console.warn("El log pendiente del panel se conservará para el siguiente intento:", error);
+    }
+}
 
 const renderWhatsAppStatus = status => {
     if (status?.relinkRequired === true) {
@@ -332,8 +359,18 @@ document.getElementById("whatsappRestartButton").addEventListener("click", async
         showActionMessage("Reinicio solicitado. El gateway volverá a estar disponible en unos segundos.", "success");
         setTimeout(() => window.location.reload(), 8000);
     } catch (error) {
-        showActionMessage("No fue posible reiniciar la conexión: " + error.message, "error");
-        button.disabled = false;
+        if (error instanceof TypeError) {
+            window.localStorage.setItem(pendingPanelLogKey, JSON.stringify({
+                occurredAt: new Date().toISOString(),
+                action: "restart-whatsapp-connection",
+                error: error.message
+            }));
+            showActionMessage("El Gateway cerró la conexión para reiniciarse. Esperando a que vuelva a estar disponible...", "success");
+            setTimeout(() => window.location.reload(), 8000);
+        } else {
+            showActionMessage("No fue posible reiniciar la conexión: " + error.message, "error");
+            button.disabled = false;
+        }
     }
 });
 
@@ -502,5 +539,6 @@ document.getElementById("logoutButton").addEventListener("click", async () => {
     }
 });
 
+reportPendingPanelLog();
 refreshStatus();
 setInterval(refreshStatus, 5000);
