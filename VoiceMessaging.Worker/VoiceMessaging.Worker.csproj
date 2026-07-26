@@ -106,5 +106,14 @@
     <None Update="WhatsAppGateway\whatsapp.js">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="WhatsAppGateway\whatsapp-diagnostics.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="WhatsAppGateway\whatsapp-messages.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="WhatsAppGateway\whatsapp-recovery.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>
