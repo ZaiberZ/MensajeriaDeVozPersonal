@@ -26,7 +26,10 @@ const { createWhatsAppRecovery } = require("./whatsapp-recovery");
  * @property {boolean} connected Estado de transporte calculado a partir de clientReady y getState.
  * @property {string} connectionState Último estado normalizado informado por WhatsApp.
  * @property {Date|null} conflictDetectedAt
+ * @property {Date|null} disconnectedSince Primera observación no conectada del incidente actual.
  * @property {Date|null} initializationStartedAt
+ * @property {Date|null} lastTransportConfirmedAt
+ * @property {string|null} lastStateObservationSignature
  * @property {string|null} lastTakeoverError
  * @property {string|null} lastQr QR serializado como data URL.
  * @property {boolean} logoutInProgress
@@ -63,6 +66,8 @@ const { createWhatsAppRecovery } = require("./whatsapp-recovery");
  *   takeoverInProgress: boolean,
  *   canTakeover: boolean,
  *   conflictDetectedAt: string|null,
+ *   disconnectedSince: string|null,
+ *   lastTransportConfirmedAt: string|null,
  *   lastTakeoverError: string|null
  * }} WhatsAppStatus
  */
@@ -117,7 +122,10 @@ const runtime = {
     connected: false,
     connectionState: "INITIALIZING",
     conflictDetectedAt: null,
+    disconnectedSince: null,
     initializationStartedAt: null,
+    lastTransportConfirmedAt: null,
+    lastStateObservationSignature: null,
     lastTakeoverError: null,
     lastQr: null,
     logoutInProgress: false,
@@ -156,11 +164,45 @@ function readJsonFile(filePath) {
     return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
 }
 
-function updateConnectionState(state) {
+/**
+ * Actualiza la fuente única del estado de transporte. UNKNOWN obtenido por una
+ * consulta no degrada inmediatamente una conexión confirmada: después de una
+ * suspensión Chromium puede tardar en reconstruir su contexto.
+ * @param {unknown} state
+ * @param {"event"|"status"|"watchdog"|"network"} [source="event"]
+ * @returns {string} Estado normalizado observado.
+ */
+function updateConnectionState(state, source = "event") {
     const normalizedState = String(state || "UNKNOWN").toUpperCase();
     const previousState = runtime.connectionState;
-    runtime.connectionState = normalizedState;
-    runtime.connected = normalizedState === "CONNECTED" && runtime.clientReady;
+
+    if (normalizedState === "CONNECTED") {
+        runtime.lastTransportConfirmedAt = new Date();
+        runtime.disconnectedSince = null;
+    } else if (source !== "network" && !runtime.disconnectedSince) {
+        runtime.disconnectedSince = new Date();
+    }
+
+    // getState puede devolver temporalmente null/UNKNOWN al reanudar Windows.
+    // Conservamos el último CONNECTED durante la gracia, pero el watchdog sigue
+    // midiendo disconnectedSince y recuperará el proceso si no vuelve.
+    const transientUnknown = source !== "event" && normalizedState === "UNKNOWN" && runtime.connected;
+
+    if (!transientUnknown) {
+        runtime.connectionState = normalizedState;
+        runtime.connected = normalizedState === "CONNECTED" && runtime.clientReady;
+    }
+
+    if (source !== "event") {
+        const signature = `${source}:${normalizedState}:${transientUnknown ? "conservado" : "aplicado"}`;
+
+        if (signature !== runtime.lastStateObservationSignature && (normalizedState !== previousState || transientUnknown)) {
+            runtime.lastStateObservationSignature = signature;
+            runtime.logLifecycleInfo(
+                `Estado de WhatsApp observado por ${source}: ${normalizedState}` +
+                `${transientUnknown ? " (se conserva temporalmente CONNECTED)." : "."}`);
+        }
+    }
 
     if (normalizedState === "CONFLICT") {
         if (!runtime.conflictDetectedAt) {
@@ -180,6 +222,8 @@ function updateConnectionState(state) {
         runtime.manualTakeoverRunning = false;
         runtime.manualTakeoverRequestedAt = null;
     }
+
+    return normalizedState;
 }
 
 function loadUser() {
@@ -216,6 +260,9 @@ const messages = createWhatsAppMessages({ client, diagnostics, recovery, runtime
  */
 client.on("qr", async qr => {
     recovery.clearInitializationWatchdog();
+    // Un QR requiere intervención; se desactiva la recuperación post-ready para
+    // que no interrumpa al usuario mientras vuelve a vincular.
+    runtime.readyAt = null;
     runtime.lastQr = await qrcode.toDataURL(qr);
     console.log("QR generado. Abre http://localhost:3000/whatsapp/qr para escanearlo.");
 });
@@ -225,6 +272,8 @@ client.on("ready", async () => {
     runtime.clientReady = false;
     updateConnectionState("CONNECTED");
     runtime.readyAt = new Date();
+    runtime.lastTransportConfirmedAt = new Date();
+    runtime.disconnectedSince = null;
     runtime.lastQr = null;
     User.IsRegistered = true;
     fs.writeFileSync(readyFilePath, new Date().toISOString(), "utf8");
@@ -240,6 +289,7 @@ client.on("ready", async () => {
     runtime.logLifecycleInfo(`WhatsApp conectado. Aislamiento de chats defectuosos: ${safeGetChatsInstalled ? "activo" : "no disponible"}.`);
     diagnostics.attachBrowserDiagnostics();
     recovery.startFunctionalHealthProbe();
+    recovery.startConnectionWatchdog();
 
     try {
         await messages.recoverUnreadMessages();
@@ -254,7 +304,7 @@ client.on("authenticated", () => {
 });
 
 client.on("change_state", state => {
-    updateConnectionState(state);
+    updateConnectionState(state, "event");
     runtime.logLifecycleInfo(`Estado de WhatsApp: ${runtime.connectionState}.`);
 });
 
@@ -406,10 +456,9 @@ function restartConnection() {
  */
 async function getStatus() {
     try {
-        updateConnectionState(await client.getState());
+        updateConnectionState(await client.getState(), "status");
     } catch {
-        if (runtime.connected)
-            updateConnectionState("UNKNOWN");
+        updateConnectionState("UNKNOWN", "status");
     }
 
     const latestTakeoverAttemptAt = runtime.manualTakeoverRequestedAt || runtime.conflictDetectedAt;
@@ -426,6 +475,8 @@ async function getStatus() {
         takeoverInProgress: runtime.manualTakeoverRunning || (conflict && takeoverAttemptAgeMs < manualTakeoverDelayMs),
         canTakeover: conflict && !runtime.manualTakeoverRunning && takeoverAttemptAgeMs >= manualTakeoverDelayMs,
         conflictDetectedAt: runtime.conflictDetectedAt?.toISOString() ?? null,
+        disconnectedSince: runtime.disconnectedSince?.toISOString() ?? null,
+        lastTransportConfirmedAt: runtime.lastTransportConfirmedAt?.toISOString() ?? null,
         lastTakeoverError: runtime.lastTakeoverError,
         User
     };

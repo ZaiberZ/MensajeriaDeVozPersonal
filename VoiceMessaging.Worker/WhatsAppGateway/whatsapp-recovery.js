@@ -42,6 +42,7 @@ const path = require("path");
  * @property {() => void} recordSuccessfulRead
  * @property {() => void} resetHealth
  * @property {(message: string, exitDelayMs?: number) => boolean} restartGatewayPreservingSession
+ * @property {() => void} startConnectionWatchdog
  * @property {() => void} startFunctionalHealthProbe
  */
 
@@ -84,11 +85,15 @@ function createWhatsAppRecovery({
     const recoveryWindowMs = 30 * 60 * 1000;
     const maxRecoveryRestarts = 3;
     const healthProbeIntervalMs = 60 * 1000;
+    const connectionProbeIntervalMs = 30 * 1000;
+    const postReadyRecoveryGraceMs = 3 * 60 * 1000;
     const extendedRecoveryDelayMs = 5 * 60 * 1000;
     const networkRetryDelayMs = 30 * 1000;
     let extendedRecoveryTimer = null;
     let healthProbeTimer = null;
     let healthProbeRunning = false;
+    let connectionWatchdogTimer = null;
+    let connectionWatchdogRunning = false;
     let initializationWatchdogTimer = null;
     let initialized = false;
     let health = loadHealth();
@@ -363,6 +368,64 @@ function createWhatsAppRecovery({
         healthProbeTimer = setInterval(probeFunctionalHealth, healthProbeIntervalMs);
     }
 
+    /**
+     * Supervisa la conexión después de ready. Es independiente del watchdog de
+     * inicialización porque la suspensión de Windows ocurre con el proceso ya
+     * iniciado y no vuelve a ejecutar client.initialize().
+     */
+    async function probeConnectionAfterReady() {
+        if (connectionWatchdogRunning || !runtime.readyAt || runtime.restartScheduled ||
+            runtime.logoutInProgress || health.relinkRequired)
+            return;
+
+        connectionWatchdogRunning = true;
+
+        try {
+            if (!await isWhatsAppNetworkReachable()) {
+                // El tiempo sin Internet no cuenta contra WhatsApp. Al regresar
+                // la red comenzará un periodo de gracia completo.
+                runtime.disconnectedSince = null;
+                updateConnectionState("WAITING_FOR_NETWORK", "network");
+                return;
+            }
+
+            let observedState = "UNKNOWN";
+
+            try {
+                observedState = await Promise.race([
+                    client.getState(),
+                    new Promise(resolve => setTimeout(() => resolve("UNKNOWN"), 10000))
+                ]);
+            } catch {
+                observedState = "UNKNOWN";
+            }
+
+            const normalizedState = updateConnectionState(observedState, "watchdog");
+
+            if (normalizedState === "CONNECTED")
+                return;
+
+            const disconnectedForMs = runtime.disconnectedSince
+                ? Date.now() - runtime.disconnectedSince.getTime()
+                : 0;
+
+            if (disconnectedForMs < postReadyRecoveryGraceMs)
+                return;
+
+            restartGatewayPreservingSession(
+                `WhatsApp no recuperó la conexión ${Math.round(disconnectedForMs / 1000)} segundos después de detectar la interrupción. Reiniciando el Gateway y conservando la sesión.`);
+        } finally {
+            connectionWatchdogRunning = false;
+        }
+    }
+
+    function startConnectionWatchdog() {
+        if (connectionWatchdogTimer)
+            return;
+
+        connectionWatchdogTimer = setInterval(probeConnectionAfterReady, connectionProbeIntervalMs);
+    }
+
     function handleAuthenticationFailure(message) {
         clearInitializationWatchdog();
         health.degraded = true;
@@ -466,6 +529,7 @@ function createWhatsAppRecovery({
         recordSuccessfulRead,
         resetHealth,
         restartGatewayPreservingSession,
+        startConnectionWatchdog,
         startFunctionalHealthProbe
     };
 }

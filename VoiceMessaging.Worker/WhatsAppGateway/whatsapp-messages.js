@@ -367,6 +367,9 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         }
 
         if (requestedContacts.length > 0 && successfulChats === 0) {
+            // Este error suele llegar minificado como "r". La instantánea permite
+            // saber si falló Store, IndexedDB, el frame o el socket de WhatsApp.
+            await diagnostics.logFunctionalDiagnostics("recuperacion-favoritos-sin-chats-exitosos", lastError);
             recovery.recordFunctionalFailure(lastError);
             const error = createWhatsAppUnavailableError();
             error.cause = lastError;
