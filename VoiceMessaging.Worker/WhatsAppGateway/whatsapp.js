@@ -87,6 +87,8 @@ function defaultHealth() {
         lastFailure: null,
         degraded: false,
         relinkRequired: false,
+        relinkReason: null,
+        recoveryExhausted: false,
         recoveryRestarts: []
     };
 }
@@ -96,7 +98,18 @@ function loadHealth() {
         if (!fs.existsSync(healthFilePath))
             return defaultHealth();
 
-        return { ...defaultHealth(), ...readJsonFile(healthFilePath) };
+        const savedHealth = { ...defaultHealth(), ...readJsonFile(healthFilePath) };
+
+        // Older versions treated exhausted recovery attempts as an invalid session.
+        // Only an authentication failure should require pairing again.
+        if (savedHealth.relinkRequired && !savedHealth.relinkReason) {
+            const authenticationFailure = /auth|autentic|logout|desvinc/i.test(savedHealth.lastFailure || "");
+            savedHealth.relinkReason = authenticationFailure ? "AUTH_FAILURE" : null;
+            savedHealth.relinkRequired = authenticationFailure;
+            savedHealth.recoveryExhausted = !authenticationFailure;
+        }
+
+        return savedHealth;
     } catch (error) {
         console.warn("No se pudo leer el estado de salud de WhatsApp; se creará uno nuevo:", error);
         return defaultHealth();
@@ -150,14 +163,17 @@ function scheduleFunctionalRecovery() {
     const recoveryRestarts = recentRecoveryRestarts();
 
     if (recoveryRestarts.length >= maxRecoveryRestarts) {
+        const wasAlreadyExhausted = health.recoveryExhausted;
         health.degraded = true;
-        health.relinkRequired = true;
+        health.recoveryExhausted = true;
         health.recoveryRestarts = recoveryRestarts;
         saveHealth();
-        console.error(`WhatsApp continuó sin poder leer chats después de ${maxRecoveryRestarts} reinicios en 30 minutos. Es necesario volver a vincular la sesión.`);
+        if (!wasAlreadyExhausted)
+            console.error(`WhatsApp continuó sin poder leer chats después de ${maxRecoveryRestarts} reinicios en 30 minutos. Se detuvo temporalmente la recuperación automática; revisa Internet y DNS. La sesión no se marcó como desvinculada.`);
         return;
     }
 
+    health.recoveryExhausted = false;
     health.recoveryRestarts = [...recoveryRestarts, new Date().toISOString()];
     saveHealth();
     restartGatewayPreservingSession(
@@ -244,6 +260,8 @@ client.on("change_state", state => {
 client.on("auth_failure", message => {
     health.degraded = true;
     health.relinkRequired = true;
+    health.relinkReason = "AUTH_FAILURE";
+    health.recoveryExhausted = false;
     health.lastFailureAt = new Date().toISOString();
     health.lastFailure = String(message || "Error de autenticación");
     saveHealth();
@@ -897,6 +915,8 @@ async function getStatus() {
         state: connectionState,
         degraded: health.degraded,
         relinkRequired: health.relinkRequired,
+        relinkReason: health.relinkReason,
+        recoveryExhausted: health.recoveryExhausted,
         consecutiveReadFailures: health.consecutiveFailures,
         lastSuccessfulReadAt: health.lastSuccessfulReadAt,
         lastReadFailureAt: health.lastFailureAt,

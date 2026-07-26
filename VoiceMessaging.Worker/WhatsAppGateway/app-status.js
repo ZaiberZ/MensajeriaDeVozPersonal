@@ -39,6 +39,11 @@ const renderWhatsAppStatus = status => {
         return;
     }
 
+    if (status?.recoveryExhausted === true) {
+        setStatus("whatsapp", "warn", "Revisar conexión a Internet / DNS");
+        return;
+    }
+
     if (status?.degraded === true) {
         setStatus("whatsapp", "warn", `Conexión degradada (${status.consecutiveReadFailures || 0} fallos)`);
         return;
@@ -77,7 +82,8 @@ const setAirbnbActions = (status, gmailStatus) => {
     toggleButton.dataset.enabled = enabled ? "true" : "false";
     toggleButton.textContent = enabled ? "Deshabilitar Airbnb" : "Habilitar Airbnb";
     gmailCard.hidden = !enabled;
-    gmailLoginLink.hidden = !enabled || gmailStatus?.authenticated === true;
+    gmailLoginLink.hidden = !enabled || gmailStatus?.authenticated === true || gmailStatus?.configured === false
+        || gmailStatus?.configurationError === true || gmailStatus?.temporarilyUnavailable === true;
     gmailTestButton.hidden = !enabled || gmailStatus?.authenticated !== true;
     gmailSyncButton.hidden = !enabled || gmailStatus?.authenticated !== true;
 
@@ -88,8 +94,16 @@ const setAirbnbActions = (status, gmailStatus) => {
         setStatus("gmailSession", "ok", gmailStatus.email ? `Conectado: ${gmailStatus.email}` : "Conectado");
     else if (gmailStatus?.configured === false)
         setStatus("gmailSession", "warn", "Falta configurar OAuth");
+    else if (gmailStatus?.configurationError === true)
+        setStatus("gmailSession", "bad", "Client ID o Client Secret inválido");
+    else if (gmailStatus?.reauthenticationRequired === true)
+        setStatus("gmailSession", "warn", "Requiere volver a autenticar");
+    else if (gmailStatus?.temporarilyUnavailable === true)
+        setStatus("gmailSession", "warn", "No se pudo validar: revisar Internet / DNS");
+    else if (gmailStatus?.authenticationRequired === true)
+        setStatus("gmailSession", "warn", "Gmail no está conectado");
     else
-        setStatus("gmailSession", "warn", "Requiere conexión");
+        setStatus("gmailSession", "warn", "No se pudo validar Gmail");
 };
 
 const formatLogDate = value => {

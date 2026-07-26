@@ -96,13 +96,34 @@ function getAuthenticatedClient() {
     return client;
 }
 
+function classifyGmailStatusError(error) {
+    const code = String(error?.code || "");
+    const httpStatus = Number(error?.response?.status || error?.status || 0);
+    const message = String(error?.response?.data?.error_description || error?.message || "No fue posible validar Gmail.");
+    const normalized = `${code} ${message}`.toLowerCase();
+
+    if (normalized.includes("invalid_client") || normalized.includes("unauthorized_client"))
+        return { configurationError: true, message };
+
+    if (httpStatus === 401 || normalized.includes("invalid_grant") || normalized.includes("invalid credentials")
+        || normalized.includes("token has been expired") || normalized.includes("token has been revoked"))
+        return { reauthenticationRequired: true, message };
+
+    if (["ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "ECONNRESET"].includes(code)
+        || normalized.includes("getaddrinfo") || normalized.includes("network") || normalized.includes("timeout"))
+        return { temporarilyUnavailable: true, message };
+
+    return { validationError: true, message };
+}
+
 async function getStatus() {
     const gmailConfig = getGmailConfig();
     const token = readToken();
     const status = {
         enabled: gmailConfig.enabled,
         configured: Boolean(gmailConfig.clientId && gmailConfig.clientSecret),
-        authenticated: Boolean(token),
+        authenticated: false,
+        authenticationRequired: !token,
         sendAuthorized: String(token?.scope || "").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.send")
     };
 
@@ -112,10 +133,11 @@ async function getStatus() {
     try {
         const gmail = google.gmail({ version: "v1", auth: getAuthenticatedClient() });
         const profile = await gmail.users.getProfile({ userId: "me" });
+        status.authenticated = true;
+        status.authenticationRequired = false;
         status.email = profile.data.emailAddress || "";
     } catch (error) {
-        status.authenticated = false;
-        status.message = error.message;
+        Object.assign(status, classifyGmailStatusError(error));
     }
 
     return status;

@@ -21,7 +21,10 @@
         .ok .dot { background: #35c978; box-shadow: 0 0 10px #35c97888; }
         .bad .dot { background: #f05252; box-shadow: 0 0 10px #f0525288; }
         .warn .dot { background: #f2b84b; box-shadow: 0 0 10px #f2b84b88; }
-        .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+        .action-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+        .action-group { background: #182028; border: 1px solid #2b3945; border-radius: 14px; padding: 16px; }
+        .action-group h2 { margin: 0 0 14px; font-size: 17px; }
+        .actions { display: flex; flex-wrap: wrap; gap: 10px; }
         a, button { border: 0; border-radius: 9px; padding: 11px 16px; font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
         a { background: #2673dd; color: white; }
         button { background: #2673dd; color: white; }
@@ -62,23 +65,43 @@
         <article class="card"><div class="label">Teléfono del usuario</div><div id="userPhone" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Mensajes por leer en Alexa</div><div id="alexa" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
     </section>
-    <nav class="actions">
-        <a id="qrLink" href="/whatsapp/qr">Ver código QR</a>
-        <a href="/whatsapp/userdata">Registrar o consultar teléfono</a>
-        <a href="/contacts">Contactos frecuentes</a>
-        <a href="/whatsapp/status" target="_blank" rel="noopener">Estado de WhatsApp</a>
-        <button id="whatsappTakeoverButton" type="button" hidden>Usar WhatsApp aquí</button>
-        <button id="whatsappRestartButton" type="button">Reiniciar conexión de WhatsApp</button>
-        <button id="favoriteSyncButton" type="button" disabled>Sincronizar mensajes de favoritos</button>
-        <button id="whatsappLogTestButton" type="button" disabled>Probar envío de logs por WhatsApp</button>
-        <button id="airbnbToggleButton" type="button">Habilitar Airbnb</button>
-        <a id="gmailLoginLink" href="/gmail/login" hidden>Conectar Gmail</a>
-        <button id="gmailTestButton" type="button" hidden>Probar lectura de correos Airbnb</button>
-        <button id="gmailSyncButton" type="button" hidden>Sincronizar mensajes Airbnb</button>
-        <button id="viewAllLogsButton" type="button">Ver todos los logs</button>
-        <button id="clearLogsButton" class="danger" type="button">Limpiar logs</button>
-        <button id="logoutButton" class="danger" type="button" hidden>Cerrar sesión en WhatsApp</button>
-    </nav>
+    <section class="action-groups" aria-label="Acciones">
+        <section class="action-group">
+            <h2>WhatsApp</h2>
+            <nav class="actions">
+                <a id="qrLink" href="/whatsapp/qr">Ver código QR</a>
+                <a href="/whatsapp/status" target="_blank" rel="noopener">Estado de WhatsApp</a>
+                <button id="whatsappTakeoverButton" type="button" hidden>Usar WhatsApp aquí</button>
+                <button id="whatsappRestartButton" type="button">Reiniciar conexión</button>
+                <button id="favoriteSyncButton" type="button" disabled>Sincronizar favoritos</button>
+                <button id="whatsappLogTestButton" type="button" disabled>Probar envío de logs</button>
+                <button id="logoutButton" class="danger" type="button" hidden>Cerrar sesión</button>
+            </nav>
+        </section>
+        <section class="action-group">
+            <h2>Configuración</h2>
+            <nav class="actions">
+                <a href="/whatsapp/userdata">Teléfono del usuario</a>
+                <a href="/contacts">Contactos frecuentes</a>
+            </nav>
+        </section>
+        <section class="action-group">
+            <h2>Airbnb y Gmail</h2>
+            <nav class="actions">
+                <button id="airbnbToggleButton" type="button">Habilitar Airbnb</button>
+                <a id="gmailLoginLink" href="/gmail/login" hidden>Conectar Gmail</a>
+                <button id="gmailTestButton" type="button" hidden>Probar lectura de correos</button>
+                <button id="gmailSyncButton" type="button" hidden>Sincronizar mensajes</button>
+            </nav>
+        </section>
+        <section class="action-group">
+            <h2>Diagnóstico</h2>
+            <nav class="actions">
+                <button id="viewAllLogsButton" type="button">Ver todos los logs</button>
+                <button id="clearLogsButton" class="danger" type="button">Limpiar logs</button>
+            </nav>
+        </section>
+    </section>
     <p id="actionMessage" role="status" aria-live="polite" hidden></p>
     <p id="detail"></p>
     <section id="errorLogsSection" class="card logs" hidden>
