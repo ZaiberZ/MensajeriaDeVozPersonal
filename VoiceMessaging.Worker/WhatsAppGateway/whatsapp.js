@@ -120,6 +120,28 @@ function recentRecoveryRestarts() {
     });
 }
 
+function restartGatewayPreservingSession(message, exitDelayMs = 250) {
+    if (restartScheduled || logoutInProgress)
+        return false;
+
+    restartScheduled = true;
+    updateConnectionState("RESTARTING");
+    console.warn(message);
+
+    setTimeout(async () => {
+        try {
+            await client.destroy();
+        } catch (cleanupError) {
+            console.error("No fue posible cerrar Chromium durante la recuperación:");
+            console.error(cleanupError);
+        }
+
+        process.exit(1);
+    }, exitDelayMs);
+
+    return true;
+}
+
 function scheduleFunctionalRecovery() {
     if (restartScheduled || logoutInProgress || health.relinkRequired)
         return;
@@ -137,23 +159,12 @@ function scheduleFunctionalRecovery() {
 
     health.recoveryRestarts = [...recoveryRestarts, new Date().toISOString()];
     saveHealth();
-    restartScheduled = true;
-    console.warn(`WhatsApp no pudo leer chats ${health.consecutiveFailures} veces consecutivas. Reiniciando Chromium y el Gateway sin eliminar la sesión.`);
-
-    setTimeout(async () => {
-        try {
-            await client.destroy();
-        } catch (cleanupError) {
-            console.error("No fue posible cerrar Chromium durante la recuperación automática:");
-            console.error(cleanupError);
-        }
-
-        process.exit(1);
-    }, 250);
+    restartGatewayPreservingSession(
+        `WhatsApp acumuló ${health.consecutiveFailures} fallos funcionales. Reiniciando Chromium y el Gateway sin eliminar la sesión.`);
 }
 
-function recordFunctionalFailure(error) {
-    health.consecutiveFailures++;
+function recordFunctionalFailure(error, failureCount = 1) {
+    health.consecutiveFailures += Math.max(1, failureCount);
     health.lastFailureAt = new Date().toISOString();
     health.lastFailure = String(error?.message || error || "Error desconocido");
     health.degraded = health.consecutiveFailures >= functionalFailureThreshold;
@@ -525,6 +536,11 @@ function isTransientBrowserError(error) {
     return message.includes("detached frame") ||
         message.includes("execution context was destroyed") ||
         message.includes("target closed") ||
+        message.includes("protocol error") ||
+        message.includes("timed out") ||
+        message.includes("timeout") ||
+        message.includes("evaluation failed") ||
+        message === "r" ||
         message.includes("whatsapp no está conectado");
 }
 
@@ -553,8 +569,15 @@ async function sendMessage(chatId, phone, text) {
             await sendMessageOnce(chatId, phone, text);
             return;
         } catch (error) {
-            if (!isTransientBrowserError(error) || attempt === sendMaxAttempts)
+            const transientError = isTransientBrowserError(error);
+
+            if (!transientError)
                 throw error;
+
+            if (attempt === sendMaxAttempts) {
+                recordFunctionalFailure(error, functionalFailureThreshold);
+                throw error;
+            }
 
             console.warn(`WhatsApp Web cambió de contexto durante el envío. Reintento ${attempt + 1} de ${sendMaxAttempts} en ${sendRetryDelayMs / 1000} segundos.`);
             await new Promise(resolve => setTimeout(resolve, sendRetryDelayMs));
@@ -689,6 +712,25 @@ function isConnected() {
     };
 }
 
+function restartConnection() {
+    if (restartScheduled)
+        return { accepted: false, message: "Ya hay un reinicio de WhatsApp en curso." };
+
+    if (logoutInProgress)
+        return { accepted: false, message: "No se puede reiniciar mientras se está cerrando la sesión." };
+
+    const accepted = restartGatewayPreservingSession(
+        "Reinicio manual solicitado desde el panel. Reiniciando Chromium y el Gateway sin eliminar la sesión.",
+        1500);
+
+    return {
+        accepted,
+        message: accepted
+            ? "Reinicio solicitado. La sesión vinculada se conservará."
+            : "No fue posible programar el reinicio."
+    };
+}
+
 async function getStatus() {
     try {
         updateConnectionState(await client.getState());
@@ -770,6 +812,7 @@ module.exports = {
     logout,
     getQr,
     getStatus,
+    restartConnection,
     requestTakeover,
     saveUser,
     clearUser,

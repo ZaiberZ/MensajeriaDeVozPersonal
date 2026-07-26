@@ -13,8 +13,9 @@ const localGmailConfigPath = path.join(__dirname, "gmail-config.local.json");
 const defaultTokenFileName = "gmail-token.json";
 const processedFilePath = path.join(dataDirectory, "gmail-airbnb-processed.json");
 const gmailScopes = [
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.send"
+    "https://www.googleapis.com/auth/gmail.readonly"
+    // Reactivar junto con SupportEmailReportsEnabled:
+    // "https://www.googleapis.com/auth/gmail.send"
 ];
 
 let getUser = () => null;

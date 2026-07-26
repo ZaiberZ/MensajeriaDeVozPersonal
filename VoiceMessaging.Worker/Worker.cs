@@ -24,6 +24,7 @@ public class Worker : BackgroundService
     private const int ErrorLogReportLimit = 10;
     private const int FirebaseErrorLogSnapshotLimit = 10;
     private const int FirebaseErrorLogRetentionDays = 30;
+    private static readonly bool SupportEmailReportsEnabled = false;
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
@@ -369,7 +370,10 @@ public class Worker : BackgroundService
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(_user.SupportEmail) && string.IsNullOrWhiteSpace(_user.SupportPhone))
+            var hasSupportDestination = !string.IsNullOrWhiteSpace(_user.SupportPhone) ||
+                SupportEmailReportsEnabled && !string.IsNullOrWhiteSpace(_user.SupportEmail);
+
+            if (!hasSupportDestination)
                 return;
 
             if (_lastErrorLogReportAt.HasValue && AppClock.Now - _lastErrorLogReportAt.Value < ErrorLogReportInterval)
@@ -389,7 +393,7 @@ public class Worker : BackgroundService
             var reportSent = false;
             Exception? emailError = null;
 
-            if (!string.IsNullOrWhiteSpace(_user.SupportEmail))
+            if (SupportEmailReportsEnabled && !string.IsNullOrWhiteSpace(_user.SupportEmail))
             {
                 try
                 {

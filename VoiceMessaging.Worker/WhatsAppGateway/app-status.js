@@ -289,6 +289,29 @@ document.getElementById("whatsappTakeoverButton").addEventListener("click", asyn
     }
 });
 
+document.getElementById("whatsappRestartButton").addEventListener("click", async () => {
+    if (!window.confirm("¿Deseas reiniciar Chromium y la conexión de WhatsApp? La sesión vinculada se conservará."))
+        return;
+
+    const button = document.getElementById("whatsappRestartButton");
+    button.disabled = true;
+    showActionMessage("Solicitando el reinicio de la conexión...");
+
+    try {
+        const response = await fetch("/whatsapp/restart-connection", { method: "POST" });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.message || "HTTP " + response.status);
+
+        showActionMessage("Reinicio solicitado. El gateway volverá a estar disponible en unos segundos.", "success");
+        setTimeout(() => window.location.reload(), 8000);
+    } catch (error) {
+        showActionMessage("No fue posible reiniciar la conexión: " + error.message, "error");
+        button.disabled = false;
+    }
+});
+
 document.getElementById("clearLogsButton").addEventListener("click", async () => {
     if (!window.confirm("¿Deseas eliminar todos los logs del Gateway y del Worker?"))
         return;

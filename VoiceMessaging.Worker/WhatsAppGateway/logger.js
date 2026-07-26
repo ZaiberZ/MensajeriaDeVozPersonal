@@ -44,6 +44,19 @@ function createLogId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function localIsoTimestamp(date = new Date()) {
+    const pad = (value, length = 2) => String(value).padStart(length, "0");
+    const offsetMinutes = -date.getTimezoneOffset();
+    const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+    const absoluteOffset = Math.abs(offsetMinutes);
+    const offsetHours = pad(Math.floor(absoluteOffset / 60));
+    const offsetRemainingMinutes = pad(absoluteOffset % 60);
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+        `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}` +
+        `${offsetSign}${offsetHours}:${offsetRemainingMinutes}`;
+}
+
 function normalizeLogs(logs) {
     let changed = false;
 
@@ -74,7 +87,7 @@ function normalizeLogs(logs) {
 function writeLog(level, message, detail = null, source = "WhatsAppGateway") {
     try {
         const logs = readLogs();
-        const timestamp = new Date().toISOString();
+        const timestamp = localIsoTimestamp();
         const duplicateIndexes = [];
 
         for (let index = 0; index < logs.length; index++) {
@@ -220,7 +233,7 @@ function markLogsReported(ids) {
         return 0;
 
     const logs = readLogs();
-    const reportedAt = new Date().toISOString();
+    const reportedAt = localIsoTimestamp();
     let updatedCount = 0;
 
     for (const log of logs) {

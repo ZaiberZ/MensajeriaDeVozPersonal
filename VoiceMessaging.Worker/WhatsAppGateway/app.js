@@ -19,6 +19,7 @@ const workerStatus = {
 let favoriteMessagesSyncRequested = false;
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
 const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000; // 1 hr
+const supportEmailReportsEnabled = false;
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
 const pendingAirbnbNotificationPath = path.join(dataDirectory, "pending-airbnb-notification.json");
@@ -56,6 +57,11 @@ app.post("/whatsapp/takeover", async (req, res) => {
     } catch (error) {
         res.status(error.statusCode || 500).json({ success: false, error: error.message });
     }
+});
+
+app.post("/whatsapp/restart-connection", (req, res) => {
+    const result = whatsapp.restartConnection();
+    res.status(result.accepted ? 202 : 409).json(result);
 });
 
 app.post("/worker-status", (req, res) => {
@@ -562,6 +568,9 @@ app.get("/whatsapp/unread-messages", async (req, res) => {
 
 app.post("/gmail/send-support-report", async (req, res) => {
     try {
+        if (!supportEmailReportsEnabled)
+            return res.status(503).json({ success: false, message: "El envío de reportes por correo está deshabilitado." });
+
         const supportEmail = whatsapp.isConnected().User?.SupportEmail?.trim();
 
         if (!supportEmail)
@@ -579,6 +588,9 @@ app.post("/gmail/send-support-report", async (req, res) => {
 
 app.post("/gmail/send-support-test", async (req, res) => {
     try {
+        if (!supportEmailReportsEnabled)
+            return res.status(503).json({ success: false, message: "El envío de reportes por correo está deshabilitado." });
+
         const user = whatsapp.isConnected().User;
         const supportEmail = user?.SupportEmail?.trim();
 

@@ -74,8 +74,10 @@
                 <dd id="savedEmail"></dd>
                 <dt>Telefono de soporte</dt>
                 <dd id="savedSupportPhone"></dd>
-                <dt>Correo de soporte</dt>
-                <dd id="savedSupportEmail"></dd>
+                <div hidden>
+                    <dt>Correo de soporte</dt>
+                    <dd id="savedSupportEmail"></dd>
+                </div>
                 <dt>Telefono para Airbnb</dt>
                 <dd id="savedSecondAribnbPhone"></dd>
             </dl>
@@ -97,8 +99,10 @@
             <label for="supportPhone">Telefono de soporte (opcional)</label>
             <input id="supportPhone" name="supportPhone" type="tel" autocomplete="tel">
 
-            <label for="supportEmail">Correo de soporte (opcional)</label>
-            <input id="supportEmail" name="supportEmail" type="email" autocomplete="email">
+            <div hidden>
+                <label for="supportEmail">Correo de soporte (opcional)</label>
+                <input id="supportEmail" name="supportEmail" type="email" autocomplete="email">
+            </div>
 
             <label for="secondAribnbPhone">Telefono para Airbnb (opcional)</label>
             <input id="secondAribnbPhone" name="secondAribnbPhone" type="tel" autocomplete="tel">
