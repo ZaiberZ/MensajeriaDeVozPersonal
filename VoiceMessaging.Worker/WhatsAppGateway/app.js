@@ -560,6 +560,47 @@ app.get("/whatsapp/unread-messages", async (req, res) => {
     }
 });
 
+app.post("/gmail/send-support-report", async (req, res) => {
+    try {
+        const supportEmail = whatsapp.isConnected().User?.SupportEmail?.trim();
+
+        if (!supportEmail)
+            return res.status(400).json({ success: false, message: "Configura el correo de soporte en los datos del usuario." });
+
+        const subject = String(req.body?.subject || "Reporte de Voice Messaging");
+        const text = String(req.body?.text || "");
+        res.json(await gmail.sendEmail(supportEmail, subject, text));
+    } catch (error) {
+        console.error("No fue posible enviar el reporte por correo:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post("/gmail/send-support-test", async (req, res) => {
+    try {
+        const user = whatsapp.isConnected().User;
+        const supportEmail = user?.SupportEmail?.trim();
+
+        if (!supportEmail)
+            return res.status(400).json({ success: false, message: "Configura el correo de soporte en los datos del usuario." });
+
+        const subject = `[VoiceMessaging] Prueba de correo - ${user.FullName || user.Phone || "equipo"}`;
+        const text = [
+            "El envío de reportes por Gmail quedó configurado correctamente.",
+            `Usuario: ${user.FullName || "Sin nombre"}`,
+            `Teléfono: ${user.Phone || "Sin teléfono"}`,
+            `Fecha UTC: ${new Date().toISOString()}`
+        ].join("\n");
+
+        res.json(await gmail.sendEmail(supportEmail, subject, text));
+    } catch (error) {
+        console.error("No fue posible enviar el correo de prueba:");
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 app.post("/whatsapp/recent-messages", async (req, res) => {
     try {
         const { chatIds, count } = req.body ?? {};

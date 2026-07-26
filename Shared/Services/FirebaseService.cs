@@ -38,6 +38,7 @@ public class FirebaseService
     private string StatusPath => FirebaseSettings.StatusFor(_userId);
     private string ControlPath => $"{UserPath}/control";
     private string ConfigurationPath => $"{UserPath}/configuracion";
+    private string DiagnosticsPath => $"{UserPath}/diagnosticos/logs_error";
 
     public async Task<bool> HasPendingMessagesAsync()
     {
@@ -82,6 +83,23 @@ public class FirebaseService
         var json = JsonSerializer.Serialize(value, _jsonOptions);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
         var response = await _httpClient.PutAsync($"{ControlPath}/last_error_logs_reported_at.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task SaveDailyErrorLogSnapshotAsync(DateTime date, DailyErrorLogSnapshotDto snapshot, CancellationToken cancellationToken = default)
+    {
+        var key = date.ToUniversalTime().ToString("yyyy-MM-dd");
+        var content = new StringContent(JsonSerializer.Serialize(snapshot, _jsonOptions), Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{DiagnosticsPath}/{key}.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteDailyErrorLogSnapshotAsync(DateTime date, CancellationToken cancellationToken = default)
+    {
+        var key = date.ToUniversalTime().ToString("yyyy-MM-dd");
+        var response = await _httpClient.DeleteAsync($"{DiagnosticsPath}/{key}.json", cancellationToken);
 
         response.EnsureSuccessStatusCode();
     }
@@ -158,6 +176,9 @@ public class FirebaseService
 
         if (!string.IsNullOrWhiteSpace(_user.SupportPhone))
             profile[nameof(UserDto.SupportPhone)] = _user.SupportPhone;
+
+        if (!string.IsNullOrWhiteSpace(_user.SupportEmail))
+            profile[nameof(UserDto.SupportEmail)] = _user.SupportEmail;
 
         var content = new StringContent(JsonSerializer.Serialize(profile), Encoding.UTF8, "application/json");
         var response = await _httpClient.PatchAsync($"{UserPath}.json", content, cancellationToken);

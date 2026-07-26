@@ -22,9 +22,13 @@ public class Worker : BackgroundService
     private static readonly TimeSpan ErrorLogReportInterval = TimeSpan.FromDays(1);
     private static readonly TimeSpan ErrorLogReportCheckInterval = TimeSpan.FromMinutes(30);
     private const int ErrorLogReportLimit = 10;
+    private const int FirebaseErrorLogSnapshotLimit = 10;
+    private const int FirebaseErrorLogRetentionDays = 30;
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
+    private static readonly string DataRoot = Environment.GetEnvironmentVariable("VOICE_MESSAGING_DATA_DIR") ?? Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+    private static readonly string FirebaseLogSyncMarkerPath = Path.Combine(DataRoot, "VoiceMessaging", "firebase-error-log-sync-date.txt");
     private readonly string sourceName = "Voice Messaging Worker";
     private readonly string logName = "Application";
     private readonly EventLog eventLog;
@@ -32,6 +36,7 @@ public class Worker : BackgroundService
     private Process? _gatewayProcess;
     private StreamWriter? _gatewayLogWriter;
     private readonly object _gatewayLogLock = new();
+    private DateTime? _lastErrorLogReportAt;
 
     public Worker(ILogger<Worker> logger, IConfiguration configuration)
     {
@@ -87,6 +92,7 @@ public class Worker : BackgroundService
         var airbnbProcessor = new AirbnbMessageProcessor(airbnb, firebase, _logger, RegisterWorkerLogAsync, airbnbGatewayEnabled);
         var pendingReplyProcessor = new PendingReplyProcessor(whatsAppProcessor, airbnbProcessor, firebase, _logger, RegisterWorkerLogAsync);
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
+        await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
         await RegisterWorkerStartedAtAsync(stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
         var whatsAppConnected = await whatsApp.IsConnectedAsync(stoppingToken);
@@ -133,7 +139,8 @@ public class Worker : BackgroundService
             if (DateTime.UtcNow >= nextErrorLogReportCheckAt)
             {
                 nextErrorLogReportCheckAt = DateTime.UtcNow.Add(ErrorLogReportCheckInterval);
-                await ReportUnreportedErrorLogsAsync(whatsApp, firebase, stoppingToken);
+                await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
+                await ReportUnreportedErrorLogsAsync(whatsApp, stoppingToken);
             }
 
             if (DateTime.UtcNow >= nextReadReconciliationAt)
@@ -358,16 +365,14 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ReportUnreportedErrorLogsAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
+    private async Task ReportUnreportedErrorLogsAsync(WhatsAppService whatsApp, CancellationToken stoppingToken)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(_user.SupportPhone))
+            if (string.IsNullOrWhiteSpace(_user.SupportEmail) && string.IsNullOrWhiteSpace(_user.SupportPhone))
                 return;
 
-            var lastReportedAt = await firebase.GetLastErrorLogsReportedAtAsync(stoppingToken);
-
-            if (lastReportedAt.HasValue && AppClock.Now - lastReportedAt.Value < ErrorLogReportInterval)
+            if (_lastErrorLogReportAt.HasValue && AppClock.Now - _lastErrorLogReportAt.Value < ErrorLogReportInterval)
                 return;
 
             var logsResponse = await whatsApp.GetUnreportedErrorLogsAsync(ErrorLogReportLimit, stoppingToken);
@@ -380,11 +385,44 @@ public class Worker : BackgroundService
             if (logIds.Count == 0)
                 return;
 
-            await whatsApp.SendMessageAsync(_user.SupportPhone, BuildErrorLogsReport(logsResponse), stoppingToken);
-            await firebase.SetLastErrorLogsReportedAtAsync(AppClock.Now, stoppingToken);
-            await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
+            var report = BuildErrorLogsReport(logsResponse);
+            var reportSent = false;
+            Exception? emailError = null;
 
-            _logger.LogInformation("Reporte diario de errores enviado al telefono de soporte. Logs reportados: {count}.", logIds.Count);
+            if (!string.IsNullOrWhiteSpace(_user.SupportEmail))
+            {
+                try
+                {
+                    var subject = $"[VoiceMessaging] Errores de {_user.FullName} ({_user.Phone})";
+                    await whatsApp.SendSupportEmailAsync(subject, report, stoppingToken);
+                    reportSent = true;
+                    _logger.LogInformation("Reporte diario de errores enviado al correo de soporte {email}.", _user.SupportEmail);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    emailError = ex;
+                    _logger.LogWarning(ex, "No fue posible enviar el reporte al correo de soporte. Se intentara usar WhatsApp.");
+                }
+            }
+
+            if (!reportSent && !string.IsNullOrWhiteSpace(_user.SupportPhone) && await whatsApp.IsConnectedAsync(stoppingToken))
+            {
+                await whatsApp.SendMessageAsync(_user.SupportPhone, report, stoppingToken);
+                reportSent = true;
+                _logger.LogInformation("Reporte diario de errores enviado al telefono de soporte.");
+            }
+
+            if (!reportSent)
+                throw new InvalidOperationException("No fue posible enviar el reporte por correo ni por WhatsApp.", emailError);
+
+            await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
+            _lastErrorLogReportAt = AppClock.Now;
+
+            _logger.LogInformation("Logs de error marcados como reportados: {count}.", logIds.Count);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -392,9 +430,70 @@ public class Worker : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "No fue posible enviar el reporte diario de errores al telefono de soporte.");
-            await RegisterWorkerLogAsync("error", "No fue posible enviar el reporte diario de errores al telefono de soporte.", ex.ToString(), stoppingToken);
+            _logger.LogError(ex, "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.");
+            await RegisterWorkerLogAsync("error", "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.", ex.ToString(), stoppingToken);
         }
+    }
+
+    private async Task SyncDailyErrorLogsToFirebaseAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
+    {
+        try
+        {
+            var today = DateTime.UtcNow.Date;
+
+            if (File.Exists(FirebaseLogSyncMarkerPath))
+            {
+                var savedDate = await File.ReadAllTextAsync(FirebaseLogSyncMarkerPath, stoppingToken);
+
+                if (DateTime.TryParseExact(savedDate.Trim(), "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out var lastSyncDate) &&
+                    lastSyncDate.Date == today)
+                    return;
+            }
+
+            var logsResponse = await whatsApp.GetErrorLogsAsync(FirebaseErrorLogSnapshotLimit, stoppingToken);
+
+            if (logsResponse.Logs.Count > 0)
+            {
+                var snapshot = new DailyErrorLogSnapshotDto
+                {
+                    CapturedAt = DateTime.UtcNow,
+                    Count = logsResponse.Count,
+                    Logs = logsResponse.Logs.Select(log => new ErrorLogSnapshotItemDto
+                    {
+                        Timestamp = log.Timestamp,
+                        LastAttemptAt = log.LastAttemptAt,
+                        Source = TruncateForFirebase(log.Source, 100),
+                        Message = TruncateForFirebase(log.Message, 500),
+                        Detail = string.IsNullOrWhiteSpace(log.Detail) ? null : TruncateForFirebase(log.Detail, 1500),
+                        AttemptCount = log.AttemptCount
+                    }).ToList()
+                };
+
+                await firebase.SaveDailyErrorLogSnapshotAsync(today, snapshot, stoppingToken);
+            }
+
+            await firebase.DeleteDailyErrorLogSnapshotAsync(today.AddDays(-(FirebaseErrorLogRetentionDays + 1)), stoppingToken);
+            Directory.CreateDirectory(Path.GetDirectoryName(FirebaseLogSyncMarkerPath)!);
+            await File.WriteAllTextAsync(FirebaseLogSyncMarkerPath, today.ToString("yyyy-MM-dd"), stoppingToken);
+            _logger.LogInformation("Sincronizacion diaria de errores con Firebase completada. Logs incluidos: {count}.", logsResponse.Logs.Count);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No fue posible sincronizar el resumen diario de errores con Firebase. Se reintentara mas tarde.");
+            await RegisterWorkerLogAsync("warning", "No fue posible sincronizar el resumen diario de errores con Firebase. Se reintentara mas tarde.", ex.ToString(), stoppingToken);
+        }
+    }
+
+    private static string TruncateForFirebase(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+            return value;
+
+        return value[..maxLength] + "...";
     }
 
     private static string BuildErrorLogsReport(GatewayLogsResponseDto logsResponse)

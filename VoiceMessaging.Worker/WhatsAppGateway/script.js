@@ -60,6 +60,7 @@ async function loadUserData() {
             document.getElementById("savedPhone").textContent = user.Phone;
             document.getElementById("savedEmail").textContent = user.Email || "Sin especificar";
             document.getElementById("savedSupportPhone").textContent = user.SupportPhone || "Sin especificar";
+            document.getElementById("savedSupportEmail").textContent = user.SupportEmail || "Sin especificar";
             document.getElementById("savedSecondAribnbPhone").textContent = user.SecondAribnbPhone || "Sin especificar";
             setUserFormValues(user);
 
@@ -87,6 +88,7 @@ function setUserFormValues(user) {
     document.getElementById("phone").value = user.Phone || "";
     document.getElementById("email").value = user.Email || "";
     document.getElementById("supportPhone").value = user.SupportPhone || "";
+    document.getElementById("supportEmail").value = user.SupportEmail || "";
     document.getElementById("secondAribnbPhone").value = user.SecondAribnbPhone || "";
 }
 
@@ -106,6 +108,7 @@ async function saveUser(event) {
         phone: document.getElementById("phone").value.trim(),
         email: document.getElementById("email").value.trim(),
         supportPhone: document.getElementById("supportPhone").value.trim(),
+        supportEmail: document.getElementById("supportEmail").value.trim(),
         secondAribnbPhone: document.getElementById("secondAribnbPhone").value.trim()
     };
 

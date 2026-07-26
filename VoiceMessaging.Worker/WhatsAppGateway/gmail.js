@@ -12,7 +12,10 @@ const gmailConfigPath = path.join(__dirname, "gmail-config.json");
 const localGmailConfigPath = path.join(__dirname, "gmail-config.local.json");
 const defaultTokenFileName = "gmail-token.json";
 const processedFilePath = path.join(dataDirectory, "gmail-airbnb-processed.json");
-const gmailScopes = ["https://www.googleapis.com/auth/gmail.readonly"];
+const gmailScopes = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send"
+];
 
 let getUser = () => null;
 
@@ -98,7 +101,8 @@ async function getStatus() {
     const status = {
         enabled: gmailConfig.enabled,
         configured: Boolean(gmailConfig.clientId && gmailConfig.clientSecret),
-        authenticated: Boolean(token)
+        authenticated: Boolean(token),
+        sendAuthorized: String(token?.scope || "").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.send")
     };
 
     if (!status.configured || !token)
@@ -133,6 +137,41 @@ async function handleOAuthCallback(code) {
     const client = createOAuthClient();
     const { tokens } = await client.getToken(code);
     saveToken(tokens);
+}
+
+function sanitizeMailHeader(value) {
+    return String(value || "").replace(/[\r\n]+/g, " ").trim();
+}
+
+async function sendEmail(to, subject, text) {
+    const recipient = sanitizeMailHeader(to);
+
+    if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient))
+        throw new Error("El correo de soporte no es válido.");
+
+    const client = getAuthenticatedClient();
+
+    if (!client)
+        throw new Error("Gmail no está autenticado. Abre /gmail/login para autorizar lectura y envío.");
+
+    const encodedSubject = Buffer.from(sanitizeMailHeader(subject), "utf8").toString("base64");
+    const rawMessage = [
+        `To: ${recipient}`,
+        `Subject: =?UTF-8?B?${encodedSubject}?=`,
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=UTF-8",
+        "",
+        String(text || "")
+    ].join("\r\n");
+    const raw = Buffer.from(rawMessage, "utf8")
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/g, "");
+    const gmail = google.gmail({ version: "v1", auth: client });
+    const response = await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+
+    return { success: true, messageId: response.data.id || null };
 }
 
 function decodeBase64Url(data) {
@@ -496,5 +535,6 @@ module.exports = {
     handleOAuthCallback,
     getAirbnbMessages,
     syncAirbnbMessages,
+    sendEmail,
     parseAirbnbEmail
 };

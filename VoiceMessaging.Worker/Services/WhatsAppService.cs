@@ -133,9 +133,26 @@ public class WhatsAppService
             ?? new GatewayLogsResponseDto();
     }
 
+    public async Task<GatewayLogsResponseDto> GetErrorLogsAsync(int limit, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.GetAsync($"/logs?level=error&limit={limit}", cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<GatewayLogsResponseDto>(cancellationToken: cancellationToken)
+            ?? new GatewayLogsResponseDto();
+    }
+
     public async Task MarkLogsAsReportedAsync(IEnumerable<string> ids, CancellationToken cancellationToken)
     {
         var response = await _httpClient.PostAsJsonAsync("/logs/mark-reported", new { ids }, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task SendSupportEmailAsync(string subject, string text, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/gmail/send-support-report", new { subject, text }, cancellationToken);
 
         response.EnsureSuccessStatusCode();
     }

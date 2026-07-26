@@ -49,7 +49,7 @@ const maxRecoveryRestarts = 3;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
-const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "SecondAribnbPhone": "", IsRegistered: false };
+const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "SupportEmail": "", "SecondAribnbPhone": "", IsRegistered: false };
 let health = loadHealth();
 
 const client = new Client({
@@ -596,6 +596,7 @@ function saveUser(user) {
         FullName: user.fullName,
         Email: user.email,
         SupportPhone: user.supportPhone || "",
+        SupportEmail: user.supportEmail || "",
         SecondAribnbPhone: user.secondAribnbPhone || ""
     };
 
@@ -606,6 +607,7 @@ function saveUser(user) {
     User.FullName = savedUser.FullName;
     User.Email = savedUser.Email;
     User.SupportPhone = savedUser.SupportPhone;
+    User.SupportEmail = savedUser.SupportEmail;
     User.SecondAribnbPhone = savedUser.SecondAribnbPhone;
 }
 
@@ -619,6 +621,7 @@ function loadUser() {
     User.FullName = savedUser.FullName || "";
     User.Email = savedUser.Email || "";
     User.SupportPhone = savedUser.SupportPhone || "";
+    User.SupportEmail = savedUser.SupportEmail || "";
     User.SecondAribnbPhone = savedUser.SecondAribnbPhone || "";
 }
 
@@ -627,6 +630,7 @@ function clearUser() {
     User.FullName = "";
     User.Email = "";
     User.SupportPhone = "";
+    User.SupportEmail = "";
     User.SecondAribnbPhone = "";
 
     if (fs.existsSync(userFilePath))
