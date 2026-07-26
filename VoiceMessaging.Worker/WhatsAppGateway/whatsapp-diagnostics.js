@@ -1,9 +1,27 @@
 const whatsappWebJsVersion = require("whatsapp-web.js/package.json").version;
 
 /**
+ * @typedef {Object} DiagnosticRuntime
+ * @property {boolean} connected
+ * @property {string} connectionState
+ * @property {Date|null} readyAt
+ */
+
+/**
+ * @typedef {Object} WhatsAppDiagnosticsApi
+ * @property {() => void} attachBrowserDiagnostics
+ * @property {() => Promise<boolean>} installSafeGetChatsWrapper
+ * @property {(context: string, error: unknown) => Promise<void>} logFunctionalDiagnostics
+ * @property {(context: string) => Promise<void>} logSkippedChatModelsIfAny
+ * @property {(value: unknown, maxLength?: number) => string} sanitizeDiagnosticText
+ */
+
+/**
  * Centraliza la observabilidad del navegador. Este módulo nunca decide si se
  * reinicia WhatsApp: solamente recopila evidencia y protege la lectura de chats
  * defectuosos para que el resto del sistema pueda tomar esa decisión.
+ * @param {{client: import("whatsapp-web.js").Client, runtime: DiagnosticRuntime}} dependencies
+ * @returns {WhatsAppDiagnosticsApi}
  */
 function createWhatsAppDiagnostics({ client, runtime }) {
     const diagnosticLogIntervalMs = 5 * 60 * 1000;
@@ -106,6 +124,13 @@ function createWhatsAppDiagnostics({ client, runtime }) {
         });
     }
 
+    /**
+     * Construye una instantánea técnica sanitizada y la registra como error.
+     * Limita su frecuencia para no llenar el archivo durante un mismo incidente.
+     * @param {string} context Nombre estable de la operación que falló.
+     * @param {unknown} error Error original que disparó el diagnóstico.
+     * @returns {Promise<void>}
+     */
     async function logFunctionalDiagnostics(context, error) {
         if (Date.now() - lastDiagnosticLogAt < diagnosticLogIntervalMs)
             return;
@@ -317,6 +342,11 @@ function createWhatsAppDiagnostics({ client, runtime }) {
         });
     }
 
+    /**
+     * Lee el resumen generado dentro del navegador sin extraer chats ni contactos.
+     * @param {string} context Descripción de la lectura que toleró modelos dañados.
+     * @returns {Promise<void>}
+     */
     async function logSkippedChatModelsIfAny(context) {
         if (!client.pupPage || client.pupPage.isClosed())
             return;

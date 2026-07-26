@@ -3,9 +3,66 @@ const fs = require("fs");
 const path = require("path");
 
 /**
+ * @typedef {Object} WhatsAppHealth
+ * @property {number} consecutiveFailures
+ * @property {string|null} lastSuccessfulReadAt
+ * @property {string|null} lastFailureAt
+ * @property {string|null} lastFailure
+ * @property {boolean} degraded
+ * @property {boolean} relinkRequired
+ * @property {string|null} relinkReason
+ * @property {boolean} recoveryExhausted
+ * @property {string[]} recoveryRestarts
+ */
+
+/**
+ * @typedef {Object} RecoveryStatusFields
+ * @property {boolean} degraded
+ * @property {boolean} relinkRequired
+ * @property {string|null} relinkReason
+ * @property {boolean} recoveryExhausted
+ * @property {number} consecutiveReadFailures
+ * @property {string|null} lastSuccessfulReadAt
+ * @property {string|null} lastReadFailureAt
+ * @property {string|null} lastReadFailure
+ * @property {string|null} initializationStartedAt
+ * @property {number|null} initializationElapsedSeconds
+ * @property {number} initializationTimeoutSeconds
+ * @property {number} recoveryRestartCount
+ */
+
+/**
+ * @typedef {Object} WhatsAppRecoveryApi
+ * @property {() => void} clearInitializationWatchdog
+ * @property {() => WhatsAppHealth} getHealth
+ * @property {() => RecoveryStatusFields} getStatusFields
+ * @property {(message: unknown) => void} handleAuthenticationFailure
+ * @property {() => Promise<void>} initialize
+ * @property {(error: unknown, failureCount?: number) => void} recordFunctionalFailure
+ * @property {() => void} recordSuccessfulRead
+ * @property {() => void} resetHealth
+ * @property {(message: string, exitDelayMs?: number) => boolean} restartGatewayPreservingSession
+ * @property {() => void} startFunctionalHealthProbe
+ */
+
+/**
  * Administra el ciclo de vida recuperable de WhatsApp. La fachada conserva los
  * eventos del cliente; este módulo conserva tiempos, salud y decisiones de
  * reinicio para evitar que esas reglas se dispersen por el resto del código.
+ * @param {{
+ *   client: import("whatsapp-web.js").Client,
+ *   diagnostics: {
+ *     logFunctionalDiagnostics: (context: string, error: unknown) => Promise<void>,
+ *     logSkippedChatModelsIfAny: (context: string) => Promise<void>
+ *   },
+ *   healthFilePath: string,
+ *   hasReadySession: boolean,
+ *   hasSession: boolean,
+ *   loadUser: () => void,
+ *   runtime: Object,
+ *   updateConnectionState: (state: string) => void
+ * }} dependencies
+ * @returns {WhatsAppRecoveryApi}
  */
 function createWhatsAppRecovery({
     client,
@@ -40,6 +97,9 @@ function createWhatsAppRecovery({
         return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
     }
 
+    /**
+     * @returns {WhatsAppHealth}
+     */
     function defaultHealth() {
         return {
             consecutiveFailures: 0,
@@ -54,6 +114,10 @@ function createWhatsAppRecovery({
         };
     }
 
+    /**
+     * Carga y migra formatos anteriores sin convertir errores funcionales en logout.
+     * @returns {WhatsAppHealth}
+     */
     function loadHealth() {
         try {
             if (!fs.existsSync(healthFilePath))
@@ -87,6 +151,9 @@ function createWhatsAppRecovery({
         fs.writeFileSync(healthFilePath, JSON.stringify(health, null, 2), "utf8");
     }
 
+    /**
+     * @returns {WhatsAppHealth} Referencia vigente; no debe modificarse fuera del módulo.
+     */
     function getHealth() {
         return health;
     }
@@ -179,6 +246,13 @@ function createWhatsAppRecovery({
         });
     }
 
+    /**
+     * Programa una única salida del proceso. LocalAuth no se elimina y el Worker
+     * será responsable de volver a iniciar el gateway.
+     * @param {string} message
+     * @param {number} [exitDelayMs=250]
+     * @returns {boolean} false cuando ya existe un reinicio o logout en curso.
+     */
     function restartGatewayPreservingSession(message, exitDelayMs = 250) {
         if (runtime.restartScheduled || runtime.logoutInProgress)
             return false;
@@ -300,6 +374,11 @@ function createWhatsAppRecovery({
         saveHealth();
     }
 
+    /**
+     * Espera conectividad, inicia whatsapp-web.js y protege cada intento con el
+     * watchdog de ready.
+     * @returns {Promise<void>}
+     */
     async function initialize() {
         if (initialized) {
             console.log("WhatsApp ya fue inicializado.");
@@ -355,6 +434,9 @@ function createWhatsAppRecovery({
         setTimeout(() => process.exit(1), 1000);
     }
 
+    /**
+     * @returns {RecoveryStatusFields}
+     */
     function getStatusFields() {
         return {
             degraded: health.degraded,

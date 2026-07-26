@@ -9,6 +9,64 @@ const { createWhatsAppDiagnostics } = require("./whatsapp-diagnostics");
 const { createWhatsAppMessages } = require("./whatsapp-messages");
 const { createWhatsAppRecovery } = require("./whatsapp-recovery");
 
+/**
+ * @typedef {Object} WhatsAppUser
+ * @property {string} Phone
+ * @property {string} FullName
+ * @property {string} Email
+ * @property {string} SupportPhone
+ * @property {string} SupportEmail
+ * @property {string} SecondAribnbPhone
+ * @property {boolean} IsRegistered
+ */
+
+/**
+ * @typedef {Object} WhatsAppRuntime
+ * @property {boolean} clientReady Indica que se ejecutó el evento ready y terminó la preparación adicional.
+ * @property {boolean} connected Estado de transporte calculado a partir de clientReady y getState.
+ * @property {string} connectionState Último estado normalizado informado por WhatsApp.
+ * @property {Date|null} conflictDetectedAt
+ * @property {Date|null} initializationStartedAt
+ * @property {string|null} lastTakeoverError
+ * @property {string|null} lastQr QR serializado como data URL.
+ * @property {boolean} logoutInProgress
+ * @property {Date|null} manualTakeoverRequestedAt
+ * @property {boolean} manualTakeoverRunning
+ * @property {Date|null} readyAt
+ * @property {boolean} restartScheduled
+ * @property {(message: string, detail?: string|null) => void} logLifecycleInfo
+ */
+
+/**
+ * @typedef {Object} WhatsAppConnectionSummary
+ * @property {boolean} connected Conexión funcional, incluyendo el estado de salud.
+ * @property {boolean} transportConnected Conexión de transporte aunque la lectura esté degradada.
+ * @property {WhatsAppUser} User
+ */
+
+/**
+ * @typedef {WhatsAppConnectionSummary & {
+ *   state: string,
+ *   degraded: boolean,
+ *   relinkRequired: boolean,
+ *   relinkReason: string|null,
+ *   recoveryExhausted: boolean,
+ *   consecutiveReadFailures: number,
+ *   lastSuccessfulReadAt: string|null,
+ *   lastReadFailureAt: string|null,
+ *   lastReadFailure: string|null,
+ *   initializationStartedAt: string|null,
+ *   initializationElapsedSeconds: number|null,
+ *   initializationTimeoutSeconds: number,
+ *   recoveryRestartCount: number,
+ *   conflict: boolean,
+ *   takeoverInProgress: boolean,
+ *   canTakeover: boolean,
+ *   conflictDetectedAt: string|null,
+ *   lastTakeoverError: string|null
+ * }} WhatsAppStatus
+ */
+
 /*
  * Fachada pública de WhatsApp.
  *
@@ -53,6 +111,7 @@ const User = {
  * Objeto compartido por referencia entre módulos. Sólo contiene estado efímero;
  * la salud persistente pertenece a whatsapp-recovery.js.
  */
+/** @type {WhatsAppRuntime} */
 const runtime = {
     clientReady: false,
     connected: false,
@@ -237,6 +296,12 @@ function getQr() {
     return runtime.lastQr || null;
 }
 
+/**
+ * Persiste los datos configurables del usuario y actualiza la instancia que se
+ * expone en las respuestas de estado.
+ * @param {{phone: string, fullName: string, email: string, supportPhone?: string, supportEmail?: string, secondAribnbPhone?: string}} user
+ * @returns {void}
+ */
 function saveUser(user) {
     const savedUser = {
         Phone: user.phone,
@@ -264,6 +329,11 @@ function clearUser() {
         fs.unlinkSync(userFilePath);
 }
 
+/**
+ * Cierra la sesión remota cuando es posible y elimina la sesión local como
+ * alternativa. Siempre limpia el indicador local de vinculación.
+ * @returns {Promise<void>}
+ */
 async function logout() {
     runtime.logoutInProgress = true;
 
@@ -295,6 +365,9 @@ async function logout() {
     }
 }
 
+/**
+ * @returns {WhatsAppConnectionSummary} Resumen síncrono utilizado por app.js.
+ */
 function isConnected() {
     const health = recovery.getHealth();
     return {
@@ -304,6 +377,10 @@ function isConnected() {
     };
 }
 
+/**
+ * Programa un reinicio preservando la carpeta LocalAuth.
+ * @returns {{accepted: boolean, message: string}}
+ */
 function restartConnection() {
     if (runtime.restartScheduled)
         return { accepted: false, message: "Ya hay un reinicio de WhatsApp en curso." };
@@ -323,6 +400,10 @@ function restartConnection() {
     };
 }
 
+/**
+ * Consulta el estado actual del cliente y combina transporte, salud y conflicto.
+ * @returns {Promise<WhatsAppStatus>}
+ */
 async function getStatus() {
     try {
         updateConnectionState(await client.getState());
@@ -350,6 +431,11 @@ async function getStatus() {
     };
 }
 
+/**
+ * Solicita a WhatsApp Web tomar el control cuando otra pestaña usa la sesión.
+ * @returns {Promise<WhatsAppStatus>}
+ * @throws {Error} Cuando no existe conflicto o la solicitud ya está ejecutándose.
+ */
 async function requestTakeover() {
     const status = await getStatus();
 
@@ -387,6 +473,10 @@ async function requestTakeover() {
     }
 }
 
+/**
+ * API estable consumida por app.js. Los módulos internos no deben importarse
+ * directamente desde las rutas HTTP.
+ */
 module.exports = {
     initialize: recovery.initialize,
     getClient() { return client; },

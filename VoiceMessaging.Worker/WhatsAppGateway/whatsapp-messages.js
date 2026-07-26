@@ -1,8 +1,69 @@
 const logger = require("./logger");
 
 /**
+ * @typedef {Object} IncomingWhatsAppMessage
+ * @property {string} id
+ * @property {string} chatId
+ * @property {string} sender
+ * @property {string} phone
+ * @property {string} text
+ * @property {"WhatsApp"} source
+ * @property {"Personal"} account
+ * @property {string} date Fecha ISO.
+ */
+
+/**
+ * @typedef {Object} FavoriteContactRequest
+ * @property {string} [id]
+ * @property {string} [name]
+ * @property {string} [phone]
+ * @property {string} [chatId]
+ */
+
+/**
+ * @typedef {Object} ReconciledContact
+ * @property {string} id
+ * @property {string} previousChatId
+ * @property {string} chatId
+ */
+
+/**
+ * @typedef {Object} RecentMessagesResult
+ * @property {IncomingWhatsAppMessage[]} messages
+ * @property {ReconciledContact[]} reconciledContacts
+ * @property {number} successfulChats
+ * @property {number} requestedChats
+ */
+
+/**
+ * @typedef {Object} WhatsAppMessagesApi
+ * @property {() => void} attachMessageHandler
+ * @property {() => Promise<Array<{name: string, phone: string, chatId: string, source: "WhatsApp"}>>} getContacts
+ * @property {() => Promise<IncomingWhatsAppMessage[]>} getPendingMessages
+ * @property {(contacts: Array<FavoriteContactRequest|string>, count?: number) => Promise<RecentMessagesResult>} getRecentMessages
+ * @property {() => Promise<IncomingWhatsAppMessage[]>} getUnreadMessages
+ * @property {(chatId: string) => Promise<void>} markChatAsRead
+ * @property {(phone: string) => string} normalizePhone
+ * @property {() => Promise<void>} recoverUnreadMessages
+ * @property {(chatId: string|null, phone: string, text: string) => Promise<void>} sendMessage
+ */
+
+/**
  * Encapsula todas las operaciones que leen o envían contenido. El módulo recibe
  * el estado por referencia para no duplicar una segunda noción de "conectado".
+ * @param {{
+ *   client: import("whatsapp-web.js").Client,
+ *   diagnostics: {
+ *     logFunctionalDiagnostics: (context: string, error: unknown) => Promise<void>,
+ *     logSkippedChatModelsIfAny: (context: string) => Promise<void>
+ *   },
+ *   recovery: {
+ *     recordFunctionalFailure: (error: unknown, failureCount?: number) => void,
+ *     recordSuccessfulRead: () => void
+ *   },
+ *   runtime: {connected: boolean}
+ * }} dependencies
+ * @returns {WhatsAppMessagesApi}
  */
 function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
     const sendRetryDelayMs = 5 * 1000;
@@ -27,6 +88,12 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
             !isChannelChatId(chatId);
     }
 
+    /**
+     * Convierte el modelo interno de whatsapp-web.js al contrato que consume el Worker.
+     * @param {import("whatsapp-web.js").Message} message
+     * @param {string} [senderFallback]
+     * @returns {Promise<IncomingWhatsAppMessage>}
+     */
     async function createIncomingMessage(message, senderFallback = "") {
         let sender = senderFallback || message.from;
 
@@ -99,6 +166,10 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         logger.addLog("info", recoveryMessage, "WhatsAppGateway");
     }
 
+    /**
+     * @returns {Promise<IncomingWhatsAppMessage[]>}
+     * @throws {Error} Con statusCode 503 cuando WhatsApp no puede consultar chats.
+     */
     async function getUnreadMessages() {
         if (!runtime.connected)
             throw new Error("WhatsApp no está conectado.");
@@ -150,6 +221,12 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         return unreadMessages;
     }
 
+    /**
+     * @param {string} chatId
+     * @param {number} messageLimit
+     * @param {number} attempts
+     * @returns {Promise<{chat: import("whatsapp-web.js").Chat, messages: import("whatsapp-web.js").Message[]}>}
+     */
     async function fetchRecentMessagesFromChat(chatId, messageLimit, attempts) {
         let lastError = null;
 
@@ -180,6 +257,10 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
      * WhatsApp migra algunos contactos de PN (@c.us) a LID. Se prueban ambos
      * identificadores para conservar favoritos creados antes de esa migración.
      */
+    /**
+     * @param {string} phone
+     * @returns {Promise<string[]>} Identificadores PN, LID y serializado, sin duplicados.
+     */
     async function resolveChatIdsByPhone(phone) {
         const normalizedPhone = String(phone || "").replace(/\D/g, "");
 
@@ -199,6 +280,13 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         return [...new Set([lidMapping?.lid, lidMapping?.pn, numberId?._serialized].filter(Boolean))];
     }
 
+    /**
+     * Recupera favoritos tolerando ChatId antiguos y devuelve las reconciliaciones
+     * que app.js debe persistir en Firebase.
+     * @param {Array<FavoriteContactRequest|string>} contacts
+     * @param {number} [count=5]
+     * @returns {Promise<RecentMessagesResult>}
+     */
     async function getRecentMessages(contacts, count = 5) {
         if (!runtime.connected)
             throw createWhatsAppUnavailableError();
@@ -353,6 +441,13 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         await client.sendMessage(numberId._serialized, text);
     }
 
+    /**
+     * Envía con reintentos solamente ante cambios transitorios de Puppeteer.
+     * @param {string|null} chatId
+     * @param {string} phone
+     * @param {string} text
+     * @returns {Promise<void>}
+     */
     async function sendMessage(chatId, phone, text) {
         for (let attempt = 1; attempt <= sendMaxAttempts; attempt++) {
             try {
@@ -385,6 +480,9 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         return messages;
     }
 
+    /**
+     * @returns {Promise<Array<{name: string, phone: string, chatId: string, source: "WhatsApp"}>>}
+     */
     async function getContacts() {
         if (!runtime.connected)
             throw new Error("WhatsApp no está conectado.");
