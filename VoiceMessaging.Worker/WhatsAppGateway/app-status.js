@@ -12,11 +12,12 @@ const setStatus = (id, kind, text) => {
 
 const setWhatsAppActions = status => {
     const connected = status?.connected === true;
+    const transportConnected = status?.transportConnected === true;
     const conflict = status?.conflict === true;
     const takeoverButton = document.getElementById("whatsappTakeoverButton");
 
-    document.getElementById("qrLink").hidden = connected || conflict;
-    document.getElementById("logoutButton").hidden = !connected;
+    document.getElementById("qrLink").hidden = transportConnected || conflict;
+    document.getElementById("logoutButton").hidden = !transportConnected && status?.relinkRequired !== true;
     takeoverButton.hidden = status?.canTakeover !== true;
     takeoverButton.disabled = takeoverButton.dataset.requesting === "true";
 };
@@ -31,6 +32,16 @@ const showActionMessage = (text, kind = "info") => {
 const expandedLogIds = new Set();
 
 const renderWhatsAppStatus = status => {
+    if (status?.relinkRequired === true) {
+        setStatus("whatsapp", "bad", "Requiere volver a vincular");
+        return;
+    }
+
+    if (status?.degraded === true) {
+        setStatus("whatsapp", "warn", `Conexión degradada (${status.consecutiveReadFailures || 0} fallos)`);
+        return;
+    }
+
     if (status?.connected === true) {
         setStatus("whatsapp", "ok", "Conectado");
         return;
@@ -218,7 +229,10 @@ async function refreshStatus() {
             ? new Date(status.lastWorkerHeartbeat).toLocaleString()
             : "Nunca recibido";
 
-        document.getElementById("detail").textContent = "Último reporte del Worker: " + heartbeat;
+        const lastRead = status.whatsapp?.lastSuccessfulReadAt
+            ? new Date(status.whatsapp.lastSuccessfulReadAt).toLocaleString()
+            : "Sin lecturas exitosas registradas";
+        document.getElementById("detail").textContent = `Último reporte del Worker: ${heartbeat}. Última lectura de WhatsApp: ${lastRead}.`;
         document.getElementById("updated").textContent = "Actualizado: " + new Date().toLocaleTimeString();
         await refreshErrorLogs();
     } catch (error) {

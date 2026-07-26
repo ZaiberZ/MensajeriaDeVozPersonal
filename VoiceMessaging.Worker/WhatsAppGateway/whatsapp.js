@@ -24,6 +24,7 @@ const sessionPath = path.join(authPath, "session-personal");
 const readyFilePath = path.join(authPath, "personal.ready");
 const hasReadySession = fs.existsSync(readyFilePath);
 const userFilePath = path.join(dataDirectory, "user-data.json");
+const healthFilePath = path.join(dataDirectory, "whatsapp-health.json");
 
 const hasSession = fs.existsSync(sessionPath);
 
@@ -42,10 +43,14 @@ const initializationRetryDelayMs = 15 * 1000;
 const initializationMaxAttempts = 5;
 const sendRetryDelayMs = 5 * 1000;
 const sendMaxAttempts = 3;
+const functionalFailureThreshold = 3;
+const recoveryWindowMs = 30 * 60 * 1000;
+const maxRecoveryRestarts = 3;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
 const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "SecondAribnbPhone": "", IsRegistered: false };
+let health = loadHealth();
 
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "personal", dataPath: authPath }),
@@ -71,6 +76,91 @@ const client = new Client({
 
 function readJsonFile(filePath) {
     return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+}
+
+function defaultHealth() {
+    return {
+        consecutiveFailures: 0,
+        lastSuccessfulReadAt: null,
+        lastFailureAt: null,
+        lastFailure: null,
+        degraded: false,
+        relinkRequired: false,
+        recoveryRestarts: []
+    };
+}
+
+function loadHealth() {
+    try {
+        if (!fs.existsSync(healthFilePath))
+            return defaultHealth();
+
+        return { ...defaultHealth(), ...readJsonFile(healthFilePath) };
+    } catch (error) {
+        console.warn("No se pudo leer el estado de salud de WhatsApp; se creará uno nuevo:", error);
+        return defaultHealth();
+    }
+}
+
+function saveHealth() {
+    fs.mkdirSync(dataDirectory, { recursive: true });
+    fs.writeFileSync(healthFilePath, JSON.stringify(health, null, 2), "utf8");
+}
+
+function recordSuccessfulRead() {
+    health = { ...defaultHealth(), lastSuccessfulReadAt: new Date().toISOString() };
+    saveHealth();
+}
+
+function recentRecoveryRestarts() {
+    const cutoff = Date.now() - recoveryWindowMs;
+    return (health.recoveryRestarts || []).filter(value => {
+        const timestamp = new Date(value).getTime();
+        return Number.isFinite(timestamp) && timestamp >= cutoff;
+    });
+}
+
+function scheduleFunctionalRecovery() {
+    if (restartScheduled || logoutInProgress || health.relinkRequired)
+        return;
+
+    const recoveryRestarts = recentRecoveryRestarts();
+
+    if (recoveryRestarts.length >= maxRecoveryRestarts) {
+        health.degraded = true;
+        health.relinkRequired = true;
+        health.recoveryRestarts = recoveryRestarts;
+        saveHealth();
+        console.error(`WhatsApp continuó sin poder leer chats después de ${maxRecoveryRestarts} reinicios en 30 minutos. Es necesario volver a vincular la sesión.`);
+        return;
+    }
+
+    health.recoveryRestarts = [...recoveryRestarts, new Date().toISOString()];
+    saveHealth();
+    restartScheduled = true;
+    console.warn(`WhatsApp no pudo leer chats ${health.consecutiveFailures} veces consecutivas. Reiniciando Chromium y el Gateway sin eliminar la sesión.`);
+
+    setTimeout(async () => {
+        try {
+            await client.destroy();
+        } catch (cleanupError) {
+            console.error("No fue posible cerrar Chromium durante la recuperación automática:");
+            console.error(cleanupError);
+        }
+
+        process.exit(1);
+    }, 250);
+}
+
+function recordFunctionalFailure(error) {
+    health.consecutiveFailures++;
+    health.lastFailureAt = new Date().toISOString();
+    health.lastFailure = String(error?.message || error || "Error desconocido");
+    health.degraded = health.consecutiveFailures >= functionalFailureThreshold;
+    saveHealth();
+
+    if (health.degraded)
+        scheduleFunctionalRecovery();
 }
 
 function getQr() {
@@ -140,6 +230,11 @@ client.on("change_state", state => {
 });
 
 client.on("auth_failure", message => {
+    health.degraded = true;
+    health.relinkRequired = true;
+    health.lastFailureAt = new Date().toISOString();
+    health.lastFailure = String(message || "Error de autenticación");
+    saveHealth();
     console.log("Error de autenticación.");
     console.log(message);
 });
@@ -260,7 +355,9 @@ async function getUnreadMessages() {
 
     try {
         chats = await client.getChats();
+        recordSuccessfulRead();
     } catch (error) {
+        recordFunctionalFailure(error);
         console.warn("WhatsApp no está disponible temporalmente para consultar los chats:", error);
 
         const unavailableError = new Error("WhatsApp no está disponible temporalmente.");
@@ -352,10 +449,14 @@ async function getRecentMessages(chatIds, count = 5) {
     }
 
     if (requestedChatIds.length > 0 && successfulChats === 0) {
+        recordFunctionalFailure(lastError);
         const error = createWhatsAppUnavailableError();
         error.cause = lastError;
         throw error;
     }
+
+    if (successfulChats > 0)
+        recordSuccessfulRead();
 
     if (successfulChats < requestedChatIds.length)
         console.warn(`La sincronización de favoritos continuó parcialmente. Chats consultados: ${successfulChats} de ${requestedChatIds.length}.`);
@@ -402,6 +503,8 @@ async function logout() {
         connected = false;
         lastQr = null;
         User.IsRegistered = false;
+        health = defaultHealth();
+        saveHealth();
 
         if (fs.existsSync(readyFilePath))
             fs.unlinkSync(readyFilePath);
@@ -575,7 +678,11 @@ async function initialize() {
 }
 
 function isConnected() {
-    return { connected, User };
+    return {
+        connected: connected && !health.degraded && !health.relinkRequired,
+        transportConnected: connected,
+        User
+    };
 }
 
 async function getStatus() {
@@ -591,8 +698,16 @@ async function getStatus() {
     const conflict = connectionState === "CONFLICT";
 
     return {
-        connected,
+        connected: connected && !health.degraded && !health.relinkRequired,
+        transportConnected: connected,
         state: connectionState,
+        degraded: health.degraded,
+        relinkRequired: health.relinkRequired,
+        consecutiveReadFailures: health.consecutiveFailures,
+        lastSuccessfulReadAt: health.lastSuccessfulReadAt,
+        lastReadFailureAt: health.lastFailureAt,
+        lastReadFailure: health.lastFailure,
+        recoveryRestartCount: recentRecoveryRestarts().length,
         conflict,
         takeoverInProgress: manualTakeoverRunning || (conflict && takeoverAttemptAgeMs < manualTakeoverDelayMs),
         canTakeover: conflict && !manualTakeoverRunning && takeoverAttemptAgeMs >= manualTakeoverDelayMs,
