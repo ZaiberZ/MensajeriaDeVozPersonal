@@ -39,8 +39,13 @@ const renderWhatsAppStatus = status => {
         return;
     }
 
+    if (status?.state === "WAITING_FOR_NETWORK") {
+        setStatus("whatsapp", "warn", "Esperando Internet / DNS para reconectar");
+        return;
+    }
+
     if (status?.recoveryExhausted === true) {
-        setStatus("whatsapp", "warn", "Revisar conexión a Internet / DNS");
+        setStatus("whatsapp", "warn", "Recuperando WhatsApp automáticamente");
         return;
     }
 
@@ -75,6 +80,7 @@ const setAirbnbActions = (status, gmailStatus) => {
     const toggleButton = document.getElementById("airbnbToggleButton");
     const gmailCard = document.getElementById("gmailCard");
     const gmailLoginLink = document.getElementById("gmailLoginLink");
+    const gmailConnectionTestButton = document.getElementById("gmailConnectionTestButton");
     const gmailTestButton = document.getElementById("gmailTestButton");
     const gmailSyncButton = document.getElementById("gmailSyncButton");
 
@@ -84,6 +90,7 @@ const setAirbnbActions = (status, gmailStatus) => {
     gmailCard.hidden = !enabled;
     gmailLoginLink.hidden = !enabled || gmailStatus?.authenticated === true || gmailStatus?.configured === false
         || gmailStatus?.configurationError === true || gmailStatus?.temporarilyUnavailable === true;
+    gmailConnectionTestButton.hidden = !enabled || gmailStatus?.configured === false;
     gmailTestButton.hidden = !enabled || gmailStatus?.authenticated !== true;
     gmailSyncButton.hidden = !enabled || gmailStatus?.authenticated !== true;
 
@@ -227,6 +234,8 @@ async function refreshStatus() {
 
         const status = await response.json();
 
+        document.getElementById("workerCard").hidden = status.workerRunning === true;
+        document.getElementById("userPhoneCard").hidden = status.userPhoneRegistered === true;
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
         renderWhatsAppStatus(status.whatsapp);
         setWhatsAppActions(status.whatsapp);
@@ -414,6 +423,38 @@ document.getElementById("gmailTestButton").addEventListener("click", async () =>
         showActionMessage(`Gmail detectó ${body.length} correo(s) de Airbnb recientes.`, "success");
     } catch (error) {
         showActionMessage("No fue posible leer correos Airbnb: " + error.message, "error");
+    } finally {
+        button.disabled = false;
+    }
+});
+
+document.getElementById("gmailConnectionTestButton").addEventListener("click", async () => {
+    const button = document.getElementById("gmailConnectionTestButton");
+    button.disabled = true;
+    showActionMessage("Validando la sesión OAuth y la conexión con Gmail...");
+
+    try {
+        const response = await fetch("/gmail/status", { cache: "no-store" });
+        const status = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(status.message || "HTTP " + response.status);
+
+        if (status.authenticated === true)
+            showActionMessage(`Conexión con Gmail correcta${status.email ? `: ${status.email}` : ""}.`, "success");
+        else if (status.configurationError === true)
+            throw new Error("El Client ID o Client Secret no es válido.");
+        else if (status.reauthenticationRequired === true || status.authenticationRequired === true)
+            throw new Error("Gmail requiere volver a autenticar. Usa el botón Conectar Gmail.");
+        else if (status.temporarilyUnavailable === true)
+            throw new Error("No se pudo contactar Gmail. Revisa Internet y DNS.");
+        else
+            throw new Error(status.message || "No se pudo validar la sesión de Gmail.");
+
+        await refreshStatus();
+    } catch (error) {
+        showActionMessage("Validación de Gmail fallida: " + error.message, "error");
+        await refreshStatus();
     } finally {
         button.disabled = false;
     }

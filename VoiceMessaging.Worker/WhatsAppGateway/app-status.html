@@ -59,10 +59,10 @@
         </div>
     </header>
     <section class="grid">
-        <article class="card"><div class="label">Servicio Worker</div><div id="worker" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article id="workerCard" class="card"><div class="label">Servicio Worker</div><div id="worker" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">WhatsApp</div><div id="whatsapp" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article id="gmailCard" class="card" hidden><div class="label">Gmail / Airbnb Email</div><div id="gmailSession" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
-        <article class="card"><div class="label">Teléfono del usuario</div><div id="userPhone" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article id="userPhoneCard" class="card"><div class="label">Teléfono del usuario</div><div id="userPhone" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Mensajes por leer en Alexa</div><div id="alexa" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
     </section>
     <section class="action-groups" aria-label="Acciones">
@@ -90,6 +90,7 @@
             <nav class="actions">
                 <button id="airbnbToggleButton" type="button">Habilitar Airbnb</button>
                 <a id="gmailLoginLink" href="/gmail/login" hidden>Conectar Gmail</a>
+                <button id="gmailConnectionTestButton" type="button" hidden>Validar conexión con Gmail</button>
                 <button id="gmailTestButton" type="button" hidden>Probar lectura de correos</button>
                 <button id="gmailSyncButton" type="button" hidden>Sincronizar mensajes</button>
             </nav>

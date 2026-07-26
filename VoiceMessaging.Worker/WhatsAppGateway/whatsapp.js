@@ -3,6 +3,7 @@ const qrcode = require("qrcode");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const dns = require("dns");
 const { getChromePath } = require("./chrome-path");
 const logger = require("./logger");
 
@@ -47,9 +48,17 @@ const sendMaxAttempts = 3;
 const functionalFailureThreshold = 3;
 const recoveryWindowMs = 30 * 60 * 1000;
 const maxRecoveryRestarts = 3;
+const healthProbeIntervalMs = 60 * 1000;
+const extendedRecoveryDelayMs = 5 * 60 * 1000;
+const networkRetryDelayMs = 30 * 1000;
+const diagnosticLogIntervalMs = 5 * 60 * 1000;
 let lastQr = null;
 let pendingMessages = [];
 const pendingMessageIds = new Set();
+let healthProbeTimer = null;
+let healthProbeRunning = false;
+let extendedRecoveryTimer = null;
+let lastDiagnosticLogAt = 0;
 const User = { "Phone": "", "FullName": "", "Email": "", "SupportPhone": "", "SupportEmail": "", "SecondAribnbPhone": "", IsRegistered: false };
 let health = loadHealth();
 
@@ -122,8 +131,45 @@ function saveHealth() {
 }
 
 function recordSuccessfulRead() {
+    if (extendedRecoveryTimer) {
+        clearTimeout(extendedRecoveryTimer);
+        extendedRecoveryTimer = null;
+    }
+
     health = { ...defaultHealth(), lastSuccessfulReadAt: new Date().toISOString() };
     saveHealth();
+}
+
+async function isWhatsAppNetworkReachable() {
+    try {
+        await dns.promises.lookup("web.whatsapp.com");
+        const response = await fetch("https://web.whatsapp.com/", {
+            method: "HEAD",
+            redirect: "manual",
+            signal: AbortSignal.timeout(10000)
+        });
+        return response.status > 0;
+    } catch {
+        return false;
+    }
+}
+
+async function waitForWhatsAppNetwork() {
+    let warningLogged = false;
+
+    while (!await isWhatsAppNetworkReachable()) {
+        updateConnectionState("WAITING_FOR_NETWORK");
+
+        if (!warningLogged) {
+            console.warn("No se puede resolver web.whatsapp.com. La recuperación esperará a que vuelva Internet sin consumir intentos.");
+            warningLogged = true;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, networkRetryDelayMs));
+    }
+
+    if (warningLogged)
+        console.log("Internet y DNS volvieron a responder. Reanudando automáticamente la conexión con WhatsApp.");
 }
 
 function recentRecoveryRestarts() {
@@ -169,7 +215,9 @@ function scheduleFunctionalRecovery() {
         health.recoveryRestarts = recoveryRestarts;
         saveHealth();
         if (!wasAlreadyExhausted)
-            console.error(`WhatsApp continuó sin poder leer chats después de ${maxRecoveryRestarts} reinicios en 30 minutos. Se detuvo temporalmente la recuperación automática; revisa Internet y DNS. La sesión no se marcó como desvinculada.`);
+            console.error(`WhatsApp continuó sin poder leer chats después de ${maxRecoveryRestarts} reinicios. La recuperación seguirá automáticamente cada ${extendedRecoveryDelayMs / 60000} minutos; la sesión no se marcó como desvinculada.`);
+
+        scheduleExtendedRecovery();
         return;
     }
 
@@ -178,6 +226,27 @@ function scheduleFunctionalRecovery() {
     saveHealth();
     restartGatewayPreservingSession(
         `WhatsApp acumuló ${health.consecutiveFailures} fallos funcionales. Reiniciando Chromium y el Gateway sin eliminar la sesión.`);
+}
+
+function scheduleExtendedRecovery() {
+    if (extendedRecoveryTimer || restartScheduled || logoutInProgress || health.relinkRequired)
+        return;
+
+    extendedRecoveryTimer = setTimeout(async () => {
+        extendedRecoveryTimer = null;
+
+        if (!await isWhatsAppNetworkReachable()) {
+            updateConnectionState("WAITING_FOR_NETWORK");
+            console.warn("La recuperación extendida de WhatsApp esperará porque web.whatsapp.com todavía no se puede resolver.");
+            scheduleExtendedRecovery();
+            return;
+        }
+
+        health.recoveryExhausted = false;
+        health.recoveryRestarts = [];
+        saveHealth();
+        restartGatewayPreservingSession("Internet está disponible. Ejecutando un nuevo ciclo automático de recuperación de WhatsApp sin eliminar la sesión.");
+    }, extendedRecoveryDelayMs);
 }
 
 function recordFunctionalFailure(error, failureCount = 1) {
@@ -189,6 +258,87 @@ function recordFunctionalFailure(error, failureCount = 1) {
 
     if (health.degraded)
         scheduleFunctionalRecovery();
+}
+
+async function logFunctionalDiagnostics(context, error) {
+    if (Date.now() - lastDiagnosticLogAt < diagnosticLogIntervalMs)
+        return;
+
+    lastDiagnosticLogAt = Date.now();
+    const diagnostics = {
+        context,
+        capturedAt: new Date().toISOString(),
+        connectionState,
+        transportConnected: connected,
+        navigatorOnline: null,
+        clientState: null,
+        pageUrl: null,
+        pageClosed: null,
+        browserConnected: null,
+        documentReadyState: null,
+        whatsappVersion: null,
+        hasWhatsAppStore: null,
+        hasChatStore: null,
+        hasWebSocketModel: null,
+        serviceWorkerControlled: null,
+        errorName: error?.name || null,
+        errorMessage: String(error?.message || error || "Error desconocido")
+    };
+
+    try {
+        diagnostics.clientState = await client.getState();
+    } catch (stateError) {
+        diagnostics.clientStateError = String(stateError?.message || stateError);
+    }
+
+    try {
+        diagnostics.pageClosed = client.pupPage?.isClosed() ?? null;
+        diagnostics.pageUrl = client.pupPage?.url() || null;
+        diagnostics.browserConnected = client.pupBrowser?.isConnected() ?? null;
+
+        if (client.pupPage && !diagnostics.pageClosed) {
+            Object.assign(diagnostics, await client.pupPage.evaluate(() => ({
+                navigatorOnline: navigator.onLine,
+                documentReadyState: document.readyState,
+                whatsappVersion: window.Debug?.VERSION || null,
+                hasWhatsAppStore: Boolean(window.Store),
+                hasChatStore: Boolean(window.Store?.Chat),
+                hasWebSocketModel: Boolean(window.Store?.AppState || window.Store?.Conn),
+                serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller)
+            })));
+        }
+    } catch (pageError) {
+        diagnostics.pageInspectionError = String(pageError?.message || pageError);
+    }
+
+    console.error("Diagnóstico funcional de WhatsApp (no contiene mensajes ni contactos):");
+    console.error(JSON.stringify(diagnostics, null, 2));
+}
+
+async function probeFunctionalHealth() {
+    if (healthProbeRunning || !connected || !health.degraded || health.relinkRequired || restartScheduled || logoutInProgress)
+        return;
+
+    healthProbeRunning = true;
+
+    try {
+        await client.getChats();
+        recordSuccessfulRead();
+        console.log("La comprobación automática de WhatsApp fue exitosa. El estado de conexión volvió a ser saludable.");
+    } catch (error) {
+        recordFunctionalFailure(error);
+        await logFunctionalDiagnostics("comprobacion-automatica", error);
+        console.warn("La comprobación automática de WhatsApp todavía no puede leer los chats:", error);
+    } finally {
+        healthProbeRunning = false;
+    }
+}
+
+function startFunctionalHealthProbe() {
+    if (healthProbeTimer)
+        return;
+
+    healthProbeTimer = setInterval(probeFunctionalHealth, healthProbeIntervalMs);
 }
 
 function getQr() {
@@ -234,6 +384,7 @@ client.on("ready", async () => {
     fs.writeFileSync(readyFilePath, new Date().toISOString(), "utf8");
 
     console.log("WhatsApp conectado.");
+    startFunctionalHealthProbe();
 
     try {
         await recoverUnreadMessages();
@@ -390,6 +541,7 @@ async function getUnreadMessages() {
         recordSuccessfulRead();
     } catch (error) {
         recordFunctionalFailure(error);
+        await logFunctionalDiagnostics("recuperacion-mensajes-no-leidos", error);
         console.warn("WhatsApp no está disponible temporalmente para consultar los chats:", error);
 
         const unavailableError = new Error("WhatsApp no está disponible temporalmente.");
@@ -840,6 +992,8 @@ async function initialize() {
     console.log("Inicializando WhatsApp...");
 
     for (let attempt = 1; attempt <= initializationMaxAttempts; attempt++) {
+        await waitForWhatsAppNetwork();
+
         try {
             console.log(`Intento de inicialización de WhatsApp ${attempt} de ${initializationMaxAttempts}.`);
             await client.initialize();
@@ -855,6 +1009,12 @@ async function initialize() {
             } catch (cleanupError) {
                 console.error("No fue posible cerrar Chromium después del error de inicialización:");
                 console.error(cleanupError);
+            }
+
+            if (/ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(String(error?.message || error))) {
+                attempt--;
+                await waitForWhatsAppNetwork();
+                continue;
             }
 
             if (attempt < initializationMaxAttempts) {
