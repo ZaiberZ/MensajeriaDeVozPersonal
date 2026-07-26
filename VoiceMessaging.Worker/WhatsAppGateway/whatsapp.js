@@ -45,6 +45,7 @@ const takeoverTimeoutMs = 5 * 1000;
 const manualTakeoverDelayMs = takeoverTimeoutMs + 3 * 1000;
 const initializationRetryDelayMs = 15 * 1000;
 const initializationMaxAttempts = 5;
+const initializationReadyTimeoutMs = 3 * 60 * 1000;
 const sendRetryDelayMs = 5 * 1000;
 const sendMaxAttempts = 3;
 const functionalFailureThreshold = 3;
@@ -66,6 +67,8 @@ const diagnosticCycleId = `${Date.now()}-${Math.random().toString(36).slice(2, 8
 let diagnosticAttempt = 0;
 let lastSkippedChatModelsSignature = null;
 let readyAt = null;
+let initializationStartedAt = null;
+let initializationWatchdogTimer = null;
 let diagnosticsPage = null;
 const recentPageErrors = [];
 const recentConsoleErrors = [];
@@ -146,6 +149,40 @@ function loadHealth() {
 function saveHealth() {
     fs.mkdirSync(dataDirectory, { recursive: true });
     fs.writeFileSync(healthFilePath, JSON.stringify(health, null, 2), "utf8");
+}
+
+function logLifecycleInfo(message, detail = null) {
+    console.log(message);
+    logger.addLog("info", message, "WhatsAppGateway", detail);
+}
+
+function clearInitializationWatchdog() {
+    if (!initializationWatchdogTimer)
+        return;
+
+    clearTimeout(initializationWatchdogTimer);
+    initializationWatchdogTimer = null;
+}
+
+function startInitializationWatchdog() {
+    clearInitializationWatchdog();
+
+    if (!hasSession && !hasReadySession)
+        return;
+
+    initializationWatchdogTimer = setTimeout(() => {
+        initializationWatchdogTimer = null;
+
+        if (clientReady || connected || restartScheduled || logoutInProgress)
+            return;
+
+        const elapsedSeconds = initializationStartedAt
+            ? Math.round((Date.now() - initializationStartedAt.getTime()) / 1000)
+            : Math.round(initializationReadyTimeoutMs / 1000);
+
+        restartGatewayPreservingSession(
+            `WhatsApp no completó la conexión después de ${elapsedSeconds} segundos. Reiniciando el Gateway y conservando la sesión.`);
+    }, initializationReadyTimeoutMs);
 }
 
 function recordSuccessfulRead() {
@@ -649,12 +686,14 @@ function updateConnectionState(state) {
 }
 
 client.on("qr", async (qr) => {
+    clearInitializationWatchdog();
     lastQr = await qrcode.toDataURL(qr);
 
     console.log("QR generado. Abre http://localhost:3000/whatsapp/qr para escanearlo.");
 });
 
 client.on("ready", async () => {
+    clearInitializationWatchdog();
     clientReady = false;
     updateConnectionState("CONNECTED");
     readyAt = new Date();
@@ -670,7 +709,7 @@ client.on("ready", async () => {
 
     clientReady = true;
     updateConnectionState("CONNECTED");
-    console.log(`WhatsApp conectado. Aislamiento de chats defectuosos: ${safeGetChatsInstalled ? "activo" : "no disponible"}.`);
+    logLifecycleInfo(`WhatsApp conectado. Aislamiento de chats defectuosos: ${safeGetChatsInstalled ? "activo" : "no disponible"}.`);
     attachBrowserDiagnostics();
     startFunctionalHealthProbe();
 
@@ -688,15 +727,16 @@ client.on("ready", async () => {
 });
 
 client.on("authenticated", () => {
-    console.log("Sesión autenticada.");
+    logLifecycleInfo("Sesión autenticada.");
 });
 
 client.on("change_state", state => {
     updateConnectionState(state);
-    console.log(`Estado de WhatsApp: ${connectionState}.`);
+    logLifecycleInfo(`Estado de WhatsApp: ${connectionState}.`);
 });
 
 client.on("auth_failure", message => {
+    clearInitializationWatchdog();
     clientReady = false;
     health.degraded = true;
     health.relinkRequired = true;
@@ -710,6 +750,7 @@ client.on("auth_failure", message => {
 });
 
 client.on("disconnected", async reason => {
+    clearInitializationWatchdog();
     clientReady = false;
     updateConnectionState(reason || "DISCONNECTED");
     User.IsRegistered = false;
@@ -1280,17 +1321,21 @@ async function initialize() {
     initialized = true;
     User.IsRegistered = false;
     loadUser();
+    initializationStartedAt = new Date();
 
-    console.log("Inicializando WhatsApp...");
+    logLifecycleInfo("Inicializando WhatsApp.");
 
     for (let attempt = 1; attempt <= initializationMaxAttempts; attempt++) {
         await waitForWhatsAppNetwork();
+        initializationStartedAt = new Date();
+        startInitializationWatchdog();
 
         try {
             console.log(`Intento de inicialización de WhatsApp ${attempt} de ${initializationMaxAttempts}.`);
             await client.initialize();
             return;
         } catch (error) {
+            clearInitializationWatchdog();
             clientReady = false;
             connected = false;
 
@@ -1318,6 +1363,7 @@ async function initialize() {
     }
 
     initialized = false;
+    clearInitializationWatchdog();
     console.error(`No fue posible inicializar WhatsApp después de ${initializationMaxAttempts} intentos. Se reiniciará WhatsAppGateway.`);
     restartScheduled = true;
     setTimeout(() => process.exit(1), 1000);
@@ -1374,6 +1420,11 @@ async function getStatus() {
         lastSuccessfulReadAt: health.lastSuccessfulReadAt,
         lastReadFailureAt: health.lastFailureAt,
         lastReadFailure: health.lastFailure,
+        initializationStartedAt: initializationStartedAt?.toISOString() ?? null,
+        initializationElapsedSeconds: initializationStartedAt && !clientReady
+            ? Math.round((Date.now() - initializationStartedAt.getTime()) / 1000)
+            : null,
+        initializationTimeoutSeconds: initializationReadyTimeoutMs / 1000,
         recoveryRestartCount: recentRecoveryRestarts().length,
         conflict,
         takeoverInProgress: manualTakeoverRunning || (conflict && takeoverAttemptAgeMs < manualTakeoverDelayMs),
