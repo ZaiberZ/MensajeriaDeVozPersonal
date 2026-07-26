@@ -15,11 +15,13 @@ const setWhatsAppActions = status => {
     const transportConnected = status?.transportConnected === true;
     const conflict = status?.conflict === true;
     const takeoverButton = document.getElementById("whatsappTakeoverButton");
+    const logTestButton = document.getElementById("whatsappLogTestButton");
 
     document.getElementById("qrLink").hidden = transportConnected || conflict;
     document.getElementById("logoutButton").hidden = !transportConnected && status?.relinkRequired !== true;
     takeoverButton.hidden = status?.canTakeover !== true;
     takeoverButton.disabled = takeoverButton.dataset.requesting === "true";
+    logTestButton.disabled = !connected || logTestButton.dataset.requesting === "true";
 };
 
 const showActionMessage = (text, kind = "info") => {
@@ -309,6 +311,28 @@ document.getElementById("whatsappRestartButton").addEventListener("click", async
     } catch (error) {
         showActionMessage("No fue posible reiniciar la conexión: " + error.message, "error");
         button.disabled = false;
+    }
+});
+
+document.getElementById("whatsappLogTestButton").addEventListener("click", async () => {
+    const button = document.getElementById("whatsappLogTestButton");
+    button.dataset.requesting = "true";
+    button.disabled = true;
+    showActionMessage("Enviando una prueba de logs al teléfono de soporte...");
+
+    try {
+        const response = await fetch("/whatsapp/test-log-report", { method: "POST" });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok)
+            throw new Error(body.error || "HTTP " + response.status);
+
+        showActionMessage(`Reporte de prueba enviado por WhatsApp. Logs incluidos: ${body.logCount}.`, "success");
+    } catch (error) {
+        showActionMessage("No fue posible enviar la prueba de logs: " + error.message, "error");
+    } finally {
+        button.dataset.requesting = "false";
+        await refreshStatus();
     }
 });
 

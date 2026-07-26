@@ -72,9 +72,16 @@ public class WhatsAppService
         return messages ?? [];
     }
 
-    public async Task<List<WhatsAppIncomingMessageDto>?> GetRecentMessagesAsync(IEnumerable<string> chatIds, int count)
+    public async Task<List<WhatsAppIncomingMessageDto>?> GetRecentMessagesAsync(IEnumerable<ContactDto> contacts, int count)
     {
-        var response = await _httpClient.PostAsJsonAsync("/whatsapp/recent-messages", new { chatIds, count });
+        var requestedContacts = contacts.Select(contact => new
+        {
+            id = contact.Id,
+            name = contact.Name,
+            phone = contact.Phone,
+            chatId = contact.ChatId
+        });
+        var response = await _httpClient.PostAsJsonAsync("/whatsapp/recent-messages", new { contacts = requestedContacts, count });
 
         if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
             return null;

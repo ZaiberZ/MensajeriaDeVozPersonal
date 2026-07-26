@@ -141,8 +141,8 @@ function writeLog(level, message, detail = null, source = "WhatsAppGateway") {
 function addLog(level, message, source = "External", detail = null) {
     const normalizedLevel = level?.toLowerCase();
 
-    if (!["error", "warning"].includes(normalizedLevel))
-        throw new Error("El nivel debe ser error o warning.");
+    if (!["error", "warning", "info"].includes(normalizedLevel))
+        throw new Error("El nivel debe ser error, warning o info.");
 
     if (typeof message !== "string" || !message.trim())
         throw new Error("El mensaje del log es obligatorio.");

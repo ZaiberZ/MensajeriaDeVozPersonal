@@ -4,6 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { getChromePath } = require("./chrome-path");
+const logger = require("./logger");
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const dataDirectory = path.join(dataRoot, "VoiceMessaging");
@@ -355,7 +356,9 @@ async function recoverUnreadMessages() {
             recoveredCount++;
     }
 
-    console.log(`${recoveredCount} mensaje(s) no leído(s) recuperado(s).`);
+    const recoveryMessage = `${recoveredCount} mensaje(s) no leído(s) recuperado(s) correctamente.`;
+    console.log(recoveryMessage);
+    logger.addLog("info", recoveryMessage, "WhatsAppGateway");
 }
 
 async function getUnreadMessages() {
@@ -473,6 +476,151 @@ async function getRecentMessages(chatIds, count = 5) {
         console.warn(`La sincronización de favoritos continuó parcialmente. Chats consultados: ${successfulChats} de ${requestedChatIds.length}.`);
 
     return recentMessages;
+}
+
+async function fetchRecentMessagesFromChat(chatId, messageLimit, attempts) {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            const chat = await client.getChatById(chatId);
+
+            if (!chat)
+                throw new Error("El chat no está disponible en la sesión actual de WhatsApp.");
+
+            const chatMessages = await chat.fetchMessages({ limit: messageLimit * 10 });
+            return {
+                chat,
+                messages: chatMessages.filter(isSupportedIncomingMessage).slice(-messageLimit)
+            };
+        } catch (error) {
+            lastError = error;
+
+            if (attempt < attempts)
+                await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
+
+    throw lastError;
+}
+
+async function resolveChatIdsByPhone(phone) {
+    const normalizedPhone = String(phone || "").replace(/\D/g, "");
+
+    if (!normalizedPhone)
+        return [];
+
+    const numberId = await client.getNumberId(normalizedPhone);
+    const phoneChatId = numberId?._serialized || `${normalizedPhone}@c.us`;
+    let lidMapping = null;
+
+    try {
+        [lidMapping] = await client.getContactLidAndPhone([phoneChatId]);
+    } catch (error) {
+        console.warn(`No fue posible resolver el LID actual del teléfono ${normalizedPhone}: ${error.message}`);
+    }
+
+    return [...new Set([lidMapping?.lid, lidMapping?.pn, numberId?._serialized].filter(Boolean))];
+}
+
+async function getRecentMessagesResolvingContacts(contacts, count = 5) {
+    if (!connected)
+        throw createWhatsAppUnavailableError();
+
+    try {
+        if (await client.getState() !== "CONNECTED")
+            throw createWhatsAppUnavailableError();
+    } catch (error) {
+        if (error.statusCode === 503)
+            throw error;
+
+        throw createWhatsAppUnavailableError();
+    }
+
+    const requestedContacts = (contacts || [])
+        .map(contact => typeof contact === "string"
+            ? { id: "", name: "", phone: "", chatId: contact }
+            : {
+                id: String(contact?.id || "").trim(),
+                name: String(contact?.name || "").trim(),
+                phone: String(contact?.phone || "").replace(/\D/g, ""),
+                chatId: String(contact?.chatId || "").trim()
+            })
+        .filter(contact => contact.chatId || contact.phone);
+    const messageLimit = Math.min(Math.max(Number(count) || 5, 1), 5);
+    const recentMessages = [];
+    const reconciledContacts = [];
+    let successfulChats = 0;
+    let lastError = null;
+
+    for (const contact of requestedContacts) {
+        let result = null;
+        let resolvedChatId = null;
+
+        if (contact.chatId) {
+            try {
+                result = await fetchRecentMessagesFromChat(contact.chatId, messageLimit, 1);
+                resolvedChatId = contact.chatId;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!result && contact.phone) {
+            try {
+                const currentChatIds = await resolveChatIdsByPhone(contact.phone);
+
+                for (const currentChatId of currentChatIds) {
+                    if (result)
+                        break;
+
+                    try {
+                        const attempts = currentChatId === contact.chatId ? 2 : 3;
+                        result = await fetchRecentMessagesFromChat(currentChatId, messageLimit, attempts);
+                        resolvedChatId = currentChatId;
+                    } catch (error) {
+                        lastError = error;
+                    }
+                }
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!result) {
+            console.warn(`No fue posible recuperar los mensajes recientes del contacto favorito ${contact.name || contact.phone || contact.chatId}:`);
+            console.warn(lastError);
+            continue;
+        }
+
+        for (const message of result.messages)
+            recentMessages.push(await createIncomingMessage(message, result.chat.name || contact.name || resolvedChatId));
+
+        successfulChats++;
+
+        if (contact.id && resolvedChatId && resolvedChatId !== contact.chatId)
+            reconciledContacts.push({ id: contact.id, previousChatId: contact.chatId, chatId: resolvedChatId });
+    }
+
+    if (requestedContacts.length > 0 && successfulChats === 0) {
+        recordFunctionalFailure(lastError);
+        const error = createWhatsAppUnavailableError();
+        error.cause = lastError;
+        throw error;
+    }
+
+    if (successfulChats > 0)
+        recordSuccessfulRead();
+
+    if (successfulChats < requestedContacts.length)
+        console.warn(`La sincronización de favoritos continuó parcialmente. Chats consultados: ${successfulChats} de ${requestedContacts.length}.`);
+
+    const recoveryMessage = successfulChats === requestedContacts.length
+        ? `Recuperación de favoritos completada correctamente. Chats consultados: ${successfulChats}. Mensajes recuperados: ${recentMessages.length}.`
+        : `Recuperación parcial de favoritos completada. Chats consultados: ${successfulChats} de ${requestedContacts.length}. Mensajes recuperados: ${recentMessages.length}.`;
+    logger.addLog("info", recoveryMessage, "WhatsAppGateway");
+
+    return { messages: recentMessages, reconciledContacts, successfulChats, requestedChats: requestedContacts.length };
 }
 
 function createWhatsAppUnavailableError() {
@@ -806,7 +954,7 @@ module.exports = {
     sendMessage,
     getPendingMessages,
     getUnreadMessages,
-    getRecentMessages,
+    getRecentMessages: getRecentMessagesResolvingContacts,
     getContacts,
     markChatAsRead,
     logout,

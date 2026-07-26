@@ -64,6 +64,56 @@ app.post("/whatsapp/restart-connection", (req, res) => {
     res.status(result.accepted ? 202 : 409).json(result);
 });
 
+function createLogReportPreview(value, maxLength = 240) {
+    const normalized = String(value || "").replace(/\s+/g, " ").trim();
+    return normalized.length <= maxLength ? normalized : normalized.slice(0, maxLength) + "...";
+}
+
+function buildWhatsAppLogTestReport(logs) {
+    const lines = [
+        "Prueba de reporte de logs de Voice Messaging.",
+        `Fecha: ${new Date().toLocaleString()}.`,
+        `Errores incluidos: ${logs.length}.`,
+        ""
+    ];
+
+    if (logs.length === 0) {
+        lines.push("No hay errores guardados actualmente. El canal de soporte por WhatsApp funciona correctamente.");
+        return lines.join("\n");
+    }
+
+    for (const log of logs) {
+        const date = log.lastAttemptAt || log.timestamp || "Fecha no disponible";
+        const attempts = Number(log.attemptCount) > 1 ? ` (${log.attemptCount} intentos)` : "";
+        lines.push(`- ${date} [${log.source || "Sin origen"}]${attempts}: ${createLogReportPreview(log.message)}`);
+    }
+
+    return lines.join("\n");
+}
+
+app.post("/whatsapp/test-log-report", async (req, res) => {
+    try {
+        const status = await whatsapp.getStatus();
+
+        if (!status.connected)
+            return res.status(503).json({ success: false, error: "WhatsApp no está conectado." });
+
+        const supportPhone = whatsapp.isConnected().User?.SupportPhone?.trim();
+
+        if (!supportPhone)
+            return res.status(400).json({ success: false, error: "Configura el teléfono de soporte en los datos del usuario." });
+
+        const logs = logger.getLogs("error", 10);
+        await whatsapp.sendMessage(null, supportPhone, buildWhatsAppLogTestReport(logs));
+        logger.addLog("info", `Prueba de envío de logs por WhatsApp completada correctamente. Logs incluidos: ${logs.length}.`, "WhatsAppGateway");
+        res.json({ success: true, logCount: logs.length });
+    } catch (error) {
+        console.error("No fue posible enviar la prueba de logs por WhatsApp:");
+        console.error(error);
+        res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    }
+});
+
 app.post("/worker-status", (req, res) => {
     workerStatus.lastHeartbeat = new Date();
     workerStatus.hasPendingMessages = req.body?.hasPendingMessages === true;
@@ -615,13 +665,40 @@ app.post("/gmail/send-support-test", async (req, res) => {
 
 app.post("/whatsapp/recent-messages", async (req, res) => {
     try {
-        const { chatIds, count } = req.body ?? {};
+        const { contacts, chatIds, count } = req.body ?? {};
+        const requestedContacts = Array.isArray(contacts) ? contacts : chatIds;
 
-        if (!Array.isArray(chatIds))
-            return res.status(400).json({ success: false, error: "La lista de chats es obligatoria." });
+        if (!Array.isArray(requestedContacts))
+            return res.status(400).json({ success: false, error: "La lista de contactos es obligatoria." });
 
-        const messages = await whatsapp.getRecentMessages(chatIds, count);
-        res.json(messages);
+        const result = await whatsapp.getRecentMessages(requestedContacts, count);
+
+        if (result.reconciledContacts.length > 0) {
+            try {
+                const phone = requireCurrentUserPhone();
+                const updates = {};
+
+                for (const contact of result.reconciledContacts)
+                    updates[`${contact.id}/chatId`] = contact.chatId;
+
+                const response = await firebaseFetch(`${frequentContactsPath(phone)}.json`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(updates),
+                    signal: AbortSignal.timeout(10000)
+                });
+
+                if (!response.ok)
+                    throw new Error(`Firebase respondió ${response.status}.`);
+
+                console.log(`ChatId actualizado en Firebase para ${result.reconciledContacts.length} contacto(s) frecuente(s).`);
+            } catch (reconciliationError) {
+                console.warn("Se recuperaron mensajes, pero no fue posible actualizar los ChatId reconciliados en Firebase:");
+                console.warn(reconciliationError);
+            }
+        }
+
+        res.json(result.messages);
     } catch (error) {
         if (error.statusCode === 503 || error.message === "WhatsApp no está conectado.")
             return res.status(503).json({ success: false, error: error.message });

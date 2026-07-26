@@ -168,11 +168,12 @@ public class WhatsAppMessageProcessor
         try
         {
             var contacts = await _firebase.GetFrequentContactsAsync("");
-            var chatIds = contacts
+            var whatsAppContacts = contacts
                 .Where(contact => string.Equals(contact.Source, "WhatsApp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(contact.ChatId))
-                .Select(contact => contact.ChatId).Distinct().ToList();
+                .GroupBy(contact => string.IsNullOrWhiteSpace(contact.Id) ? contact.ChatId : contact.Id)
+                .Select(group => group.First()).ToList();
 
-            if (chatIds.Count == 0)
+            if (whatsAppContacts.Count == 0)
             {
                 const string message = "La sincronización de favoritos terminó sin consultar WhatsApp porque no hay contactos frecuentes de WhatsApp con un ChatId registrado.";
                 _logger.LogWarning(message);
@@ -180,9 +181,9 @@ public class WhatsAppMessageProcessor
                 return true;
             }
 
-            _logger.LogInformation("Consultando los últimos mensajes de {count} contactos favoritos de WhatsApp.", chatIds.Count);
+            _logger.LogInformation("Consultando los últimos mensajes de {count} contactos favoritos de WhatsApp.", whatsAppContacts.Count);
 
-            var recentMessages = await _whatsApp.GetRecentMessagesAsync(chatIds, 5);
+            var recentMessages = await _whatsApp.GetRecentMessagesAsync(whatsAppContacts, 5);
 
             if (recentMessages == null)
             {
@@ -206,7 +207,7 @@ public class WhatsAppMessageProcessor
                 addedMessages++;
             }
 
-            var completedMessage = $"Sincronización de favoritos completada. Chats consultados: {chatIds.Count}. Mensajes recuperados: {recentMessages.Count}. Mensajes históricos agregados: {addedMessages}.";
+            var completedMessage = $"Sincronización de favoritos completada. Chats solicitados: {whatsAppContacts.Count}. Mensajes recuperados: {recentMessages.Count}. Mensajes históricos agregados: {addedMessages}.";
             _logger.LogInformation(completedMessage);
             await _registerWorkerLog("info", completedMessage, null, stoppingToken);
             return true;
