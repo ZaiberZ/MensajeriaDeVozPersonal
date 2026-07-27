@@ -361,7 +361,7 @@ public class Worker : BackgroundService
 
             _logger.LogInformation(
                 "Limpieza inicial completada. Se eliminaron {count} mensajes leídos anteriores a {cutoff}.",
-                deletedMessages,cutoff);
+                deletedMessages, cutoff);
         }
         catch (Exception ex)
         {
