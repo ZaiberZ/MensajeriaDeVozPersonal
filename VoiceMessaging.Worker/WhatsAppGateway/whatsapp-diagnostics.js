@@ -1,4 +1,5 @@
 const whatsappWebJsVersion = require("whatsapp-web.js/package.json").version;
+const logger = require("./logger");
 
 /**
  * @typedef {Object} DiagnosticRuntime
@@ -34,12 +35,15 @@ const whatsappWebJsVersion = require("whatsapp-web.js/package.json").version;
  * @returns {WhatsAppDiagnosticsApi}
  */
 function createWhatsAppDiagnostics({ client, runtime }) {
-    const diagnosticLogIntervalMs = 5 * 60 * 1000;
+    const diagnosticLogIntervalMs = 30 * 60 * 1000;
+    const skippedChatModelsLogIntervalMs = 6 * 60 * 60 * 1000;
     const diagnosticCycleId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const maxDiagnosticEvents = 20;
+    const maxDiagnosticEvents = 10;
     let diagnosticAttempt = 0;
     let diagnosticsPage = null;
     let lastDiagnosticLogAt = 0;
+    let lastFavoriteDiagnosticLogAt = 0;
+    let lastSkippedChatModelsLogAt = 0;
     let lastSkippedChatModelsSignature = null;
     const recentPageErrors = [];
     const recentConsoleErrors = [];
@@ -79,6 +83,10 @@ function createWhatsAppDiagnostics({ client, runtime }) {
         if (!client.pupPage || client.pupPage.isClosed())
             return;
 
+        if (Date.now() - lastFavoriteDiagnosticLogAt < diagnosticLogIntervalMs)
+            return;
+
+        lastFavoriteDiagnosticLogAt = Date.now();
         const safeTargets = (targets || []).slice(0, 25).map(target => ({
             favoriteIndex: Number(target.favoriteIndex),
             hasStoredChatId: target.hasStoredChatId === true,
@@ -201,8 +209,10 @@ function createWhatsAppDiagnostics({ client, runtime }) {
             ]);
             inspection.truncated = (targets || []).length > 25;
 
-            console.error(
-                "Diagnóstico dirigido de favoritos (no contiene nombres, teléfonos, ChatId ni mensajes):",
+            logger.addLog(
+                "info",
+                "Diagnóstico dirigido de favoritos (no contiene nombres, teléfonos, ChatId ni mensajes).",
+                "WhatsAppGateway",
                 JSON.stringify(inspection, null, 2));
         } catch (error) {
             console.error("No fue posible completar el diagnóstico dirigido de favoritos:", error);
@@ -445,7 +455,11 @@ function createWhatsAppDiagnostics({ client, runtime }) {
         }
 
         await Promise.all(inspections);
-        console.error("Diagnóstico funcional de WhatsApp (no contiene mensajes ni contactos):", JSON.stringify(diagnostics, null, 2));
+        logger.addLog(
+            "info",
+            "Diagnóstico funcional de WhatsApp (no contiene mensajes ni contactos).",
+            "WhatsAppGateway",
+            JSON.stringify(diagnostics, null, 2));
     }
 
     /**
@@ -510,10 +524,13 @@ function createWhatsAppDiagnostics({ client, runtime }) {
 
         const signature = JSON.stringify(failures);
 
-        if (signature === lastSkippedChatModelsSignature)
+        const repeatedTooSoon = Date.now() - lastSkippedChatModelsLogAt < skippedChatModelsLogIntervalMs;
+
+        if (signature === lastSkippedChatModelsSignature || repeatedTooSoon)
             return;
 
         lastSkippedChatModelsSignature = signature;
+        lastSkippedChatModelsLogAt = Date.now();
         console.warn(
             `WhatsApp omitió ${failures.count} chat(s) que no pudo leer durante ${context}; los demás chats continuarán procesándose.`,
             signature);

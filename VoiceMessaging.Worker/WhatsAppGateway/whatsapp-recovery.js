@@ -84,7 +84,7 @@ function createWhatsAppRecovery({
     const automaticFunctionalRestartsEnabled = false;
     const recoveryWindowMs = 30 * 60 * 1000;
     const maxRecoveryRestarts = 3;
-    const healthProbeIntervalMs = 60 * 1000;
+    const healthProbeIntervalMs = 5 * 60 * 1000;
     const connectionProbeIntervalMs = 30 * 1000;
     const postReadyRecoveryGraceMs = 3 * 60 * 1000;
     const extendedRecoveryDelayMs = 5 * 60 * 1000;

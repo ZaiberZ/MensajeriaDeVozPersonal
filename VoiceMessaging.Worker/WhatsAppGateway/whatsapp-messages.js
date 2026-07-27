@@ -469,11 +469,8 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
                 }
             }
 
-            if (!result) {
-                console.warn(`No fue posible recuperar los mensajes recientes del contacto favorito ${contact.name || contact.phone || contact.chatId}:`);
-                console.warn(lastError);
+            if (!result)
                 continue;
-            }
 
             for (const message of result.messages) {
                 const incomingMessage = await createIncomingMessage(
@@ -505,6 +502,8 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         }
 
         if (requestedContacts.length > 0 && successfulChats === 0) {
+            console.warn(
+                `No fue posible recuperar mensajes de ninguno de los ${requestedContacts.length} contactos favoritos solicitados.`);
             // Este error suele llegar minificado como "r". La instantánea permite
             // saber si falló Store, IndexedDB, el frame o el socket de WhatsApp.
             await diagnostics.diagnoseFavoriteChats(favoriteDiagnosticTargets);
