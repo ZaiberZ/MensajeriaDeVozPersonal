@@ -1,4 +1,5 @@
 const logger = require("./logger");
+const { Message } = require("whatsapp-web.js");
 
 /**
  * @typedef {Object} IncomingWhatsAppMessage
@@ -54,6 +55,7 @@ const logger = require("./logger");
  * @param {{
  *   client: import("whatsapp-web.js").Client,
  *   diagnostics: {
+ *     diagnoseFavoriteChats: (targets: Object[]) => Promise<void>,
  *     logFunctionalDiagnostics: (context: string, error: unknown) => Promise<void>,
  *     logSkippedChatModelsIfAny: (context: string) => Promise<void>
  *   },
@@ -92,16 +94,19 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
      * Convierte el modelo interno de whatsapp-web.js al contrato que consume el Worker.
      * @param {import("whatsapp-web.js").Message} message
      * @param {string} [senderFallback]
+     * @param {boolean} [skipContactLookup=false]
      * @returns {Promise<IncomingWhatsAppMessage>}
      */
-    async function createIncomingMessage(message, senderFallback = "") {
+    async function createIncomingMessage(message, senderFallback = "", skipContactLookup = false) {
         let sender = senderFallback || message.from;
 
-        try {
-            const contact = await message.getContact();
-            sender = contact.pushname || contact.name || sender;
-        } catch (error) {
-            console.warn(`No se pudo obtener el contacto de ${message.from}: ${error.message}`);
+        if (!skipContactLookup) {
+            try {
+                const contact = await message.getContact();
+                sender = contact.pushname || contact.name || sender;
+            } catch (error) {
+                console.warn(`No se pudo obtener el contacto de ${message.from}: ${error.message}`);
+            }
         }
 
         return {
@@ -225,7 +230,12 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
      * @param {string} chatId
      * @param {number} messageLimit
      * @param {number} attempts
-     * @returns {Promise<{chat: import("whatsapp-web.js").Chat, messages: import("whatsapp-web.js").Message[]}>}
+     * @returns {Promise<{
+     *   chatName: string,
+     *   messages: import("whatsapp-web.js").Message[],
+     *   usedDirectFallback: boolean,
+     *   historyLoadFailed: boolean
+     * }>}
      */
     async function fetchRecentMessagesFromChat(chatId, messageLimit, attempts) {
         let lastError = null;
@@ -239,11 +249,24 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
 
                 const chatMessages = await chat.fetchMessages({ limit: messageLimit * 10 });
                 return {
-                    chat,
-                    messages: chatMessages.filter(isSupportedIncomingMessage).slice(-messageLimit)
+                    chatName: chat.name || "",
+                    messages: chatMessages.filter(isSupportedIncomingMessage).slice(-messageLimit),
+                    usedDirectFallback: false,
+                    historyLoadFailed: false
                 };
             } catch (error) {
                 lastError = error;
+
+                // El fallback se prueba desde el primer fallo. En chats LID evita
+                // esperar reintentos que repetirían el mismo DataError.
+                try {
+                    const fallbackResult = await fetchRecentMessagesFromRawChat(chatId, messageLimit);
+
+                    if (fallbackResult)
+                        return fallbackResult;
+                } catch (fallbackError) {
+                    lastError = fallbackError;
+                }
 
                 if (attempt < attempts)
                     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -251,6 +274,87 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         }
 
         throw lastError;
+    }
+
+    /**
+     * Lee y serializa mensajes individuales desde el modelo crudo del chat. No
+     * llama getChatModel y, por tanto, evita el DataError confirmado en chats LID.
+     * @param {string} chatId
+     * @param {number} messageLimit
+     * @returns {Promise<{
+     *   chatName: string,
+     *   messages: import("whatsapp-web.js").Message[],
+     *   usedDirectFallback: true,
+     *   historyLoadFailed: boolean
+     * }|null>}
+     */
+    async function fetchRecentMessagesFromRawChat(chatId, messageLimit) {
+        const browserResult = await client.pupPage.evaluate(async (targetChatId, targetMessageCount) => {
+            const chatWid = window.require("WAWebWidFactory").createWid(targetChatId);
+            const rawChat = window.require("WAWebCollections").Chat.get(chatWid);
+
+            if (!rawChat?.msgs)
+                return null;
+
+            const requestedCacheSize = Math.max(targetMessageCount * 10, targetMessageCount);
+            let rawMessages = rawChat.msgs.getModelsArray();
+            let historyLoadFailed = false;
+
+            // La carga histórica es de mejor esfuerzo. Si IndexedDB vuelve a
+            // fallar, se conservan los mensajes que ya estaban en memoria.
+            for (let attempt = 0; rawMessages.length < requestedCacheSize && attempt < 5; attempt++) {
+                try {
+                    const previousCount = rawMessages.length;
+                    const loadedMessages = await window.require("WAWebChatLoadMessages").loadEarlierMsgs({ chat: rawChat });
+
+                    if (!loadedMessages?.length)
+                        break;
+
+                    rawMessages = [...loadedMessages, ...rawMessages];
+
+                    if (rawMessages.length <= previousCount)
+                        break;
+                } catch {
+                    historyLoadFailed = true;
+                    break;
+                }
+            }
+
+            rawMessages.sort((left, right) => (left.t > right.t ? 1 : -1));
+            rawMessages = rawMessages.slice(-requestedCacheSize);
+            const messageModels = [];
+            let serializationFailures = 0;
+
+            for (const rawMessage of rawMessages) {
+                try {
+                    messageModels.push(await window.WWebJS.getMessageModel(rawMessage));
+                } catch {
+                    serializationFailures++;
+                }
+            }
+
+            return {
+                messageModels,
+                historyLoadFailed,
+                serializationFailures
+            };
+        }, chatId, messageLimit);
+
+        if (!browserResult)
+            return null;
+
+        const messages = browserResult.messageModels
+            .map(model => new Message(client, model))
+            .filter(isSupportedIncomingMessage)
+            .slice(-messageLimit);
+
+        return {
+            chatName: "",
+            messages,
+            usedDirectFallback: true,
+            historyLoadFailed: browserResult.historyLoadFailed === true ||
+                Number(browserResult.serializationFailures) > 0
+        };
     }
 
     /**
@@ -314,14 +418,26 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         const messageLimit = Math.min(Math.max(Number(count) || 5, 1), 5);
         const recentMessages = [];
         const reconciledContacts = [];
+        const favoriteDiagnosticTargets = [];
         let successfulChats = 0;
+        let directFallbackChats = 0;
+        let directFallbackHistoryFailures = 0;
         let lastError = null;
 
-        for (const contact of requestedContacts) {
+        for (const [contactIndex, contact] of requestedContacts.entries()) {
             let result = null;
             let resolvedChatId = null;
+            const diagnosticTarget = {
+                favoriteIndex: contactIndex + 1,
+                hasStoredChatId: Boolean(contact.chatId),
+                hasPhone: Boolean(contact.phone),
+                candidateChatIds: [],
+                phoneResolutionError: null
+            };
+            favoriteDiagnosticTargets.push(diagnosticTarget);
 
             if (contact.chatId) {
+                diagnosticTarget.candidateChatIds.push(contact.chatId);
                 try {
                     result = await fetchRecentMessagesFromChat(contact.chatId, messageLimit, 1);
                     resolvedChatId = contact.chatId;
@@ -333,6 +449,7 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
             if (!result && contact.phone) {
                 try {
                     const currentChatIds = await resolveChatIdsByPhone(contact.phone);
+                    diagnosticTarget.candidateChatIds.push(...currentChatIds);
 
                     for (const currentChatId of currentChatIds) {
                         if (result)
@@ -348,6 +465,7 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
                     }
                 } catch (error) {
                     lastError = error;
+                    diagnosticTarget.phoneResolutionError = String(error?.message || error || "Error desconocido");
                 }
             }
 
@@ -357,10 +475,30 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
                 continue;
             }
 
-            for (const message of result.messages)
-                recentMessages.push(await createIncomingMessage(message, result.chat.name || contact.name || resolvedChatId));
+            for (const message of result.messages) {
+                const incomingMessage = await createIncomingMessage(
+                    message,
+                    result.chatName || contact.name || resolvedChatId,
+                    result.usedDirectFallback);
+
+                if (result.usedDirectFallback) {
+                    incomingMessage.chatId = resolvedChatId || incomingMessage.chatId;
+
+                    if (contact.phone)
+                        incomingMessage.phone = contact.phone;
+                }
+
+                recentMessages.push(incomingMessage);
+            }
 
             successfulChats++;
+
+            if (result.usedDirectFallback) {
+                directFallbackChats++;
+
+                if (result.historyLoadFailed)
+                    directFallbackHistoryFailures++;
+            }
 
             if (contact.id && resolvedChatId && resolvedChatId !== contact.chatId)
                 reconciledContacts.push({ id: contact.id, previousChatId: contact.chatId, chatId: resolvedChatId });
@@ -369,6 +507,7 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         if (requestedContacts.length > 0 && successfulChats === 0) {
             // Este error suele llegar minificado como "r". La instantánea permite
             // saber si falló Store, IndexedDB, el frame o el socket de WhatsApp.
+            await diagnostics.diagnoseFavoriteChats(favoriteDiagnosticTargets);
             await diagnostics.logFunctionalDiagnostics("recuperacion-favoritos-sin-chats-exitosos", lastError);
             recovery.recordFunctionalFailure(lastError);
             const error = createWhatsAppUnavailableError();
@@ -385,7 +524,10 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         const recoveryMessage = successfulChats === requestedContacts.length
             ? `Recuperación de favoritos completada correctamente. Chats consultados: ${successfulChats}. Mensajes recuperados: ${recentMessages.length}.`
             : `Recuperación parcial de favoritos completada. Chats consultados: ${successfulChats} de ${requestedContacts.length}. Mensajes recuperados: ${recentMessages.length}.`;
-        logger.addLog("info", recoveryMessage, "WhatsAppGateway");
+        const fallbackDetail = directFallbackChats > 0
+            ? ` Fallback directo utilizado en ${directFallbackChats} chat(s); carga histórica limitada en ${directFallbackHistoryFailures}.`
+            : "";
+        logger.addLog("info", recoveryMessage + fallbackDetail, "WhatsAppGateway");
 
         return { messages: recentMessages, reconciledContacts, successfulChats, requestedChats: requestedContacts.length };
     }

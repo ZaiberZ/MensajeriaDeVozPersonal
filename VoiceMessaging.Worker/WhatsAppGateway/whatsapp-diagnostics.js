@@ -10,10 +10,20 @@ const whatsappWebJsVersion = require("whatsapp-web.js/package.json").version;
 /**
  * @typedef {Object} WhatsAppDiagnosticsApi
  * @property {() => void} attachBrowserDiagnostics
+ * @property {(targets: FavoriteDiagnosticTarget[]) => Promise<void>} diagnoseFavoriteChats
  * @property {() => Promise<boolean>} installSafeGetChatsWrapper
  * @property {(context: string, error: unknown) => Promise<void>} logFunctionalDiagnostics
  * @property {(context: string) => Promise<void>} logSkippedChatModelsIfAny
  * @property {(value: unknown, maxLength?: number) => string} sanitizeDiagnosticText
+ */
+
+/**
+ * @typedef {Object} FavoriteDiagnosticTarget
+ * @property {number} favoriteIndex Posición del favorito, sin nombre ni teléfono.
+ * @property {boolean} hasStoredChatId
+ * @property {boolean} hasPhone
+ * @property {string[]} candidateChatIds Se usan dentro del navegador y nunca se incluyen en el resultado.
+ * @property {string|null} phoneResolutionError
  */
 
 /**
@@ -56,6 +66,147 @@ function createWhatsAppDiagnostics({ client, runtime }) {
 
         if (collection.length > maxDiagnosticEvents)
             collection.splice(0, collection.length - maxDiagnosticEvents);
+    }
+
+    /**
+     * Inspecciona por etapas la ruta usada por getChatById. El resultado excluye
+     * identificadores, contactos y contenido. Se limita a 25 favoritos y cuatro
+     * candidatos por favorito para cubrir instalaciones reales sin inflar el log.
+     * @param {FavoriteDiagnosticTarget[]} targets
+     * @returns {Promise<void>}
+     */
+    async function diagnoseFavoriteChats(targets) {
+        if (!client.pupPage || client.pupPage.isClosed())
+            return;
+
+        const safeTargets = (targets || []).slice(0, 25).map(target => ({
+            favoriteIndex: Number(target.favoriteIndex),
+            hasStoredChatId: target.hasStoredChatId === true,
+            hasPhone: target.hasPhone === true,
+            candidateChatIds: [...new Set(target.candidateChatIds || [])].filter(Boolean).slice(0, 4),
+            phoneResolutionError: sanitizeDiagnosticText(target.phoneResolutionError, 300) || null
+        }));
+
+        try {
+            const inspection = await Promise.race([
+                client.pupPage.evaluate(async diagnosticTargets => {
+                    const classifyId = chatId => {
+                        if (chatId.endsWith("@lid"))
+                            return "LID";
+                        if (chatId.endsWith("@c.us") || chatId.endsWith("@s.whatsapp.net"))
+                            return "PN";
+                        if (chatId.endsWith("@g.us"))
+                            return "GROUP";
+                        return "OTHER";
+                    };
+                    const sanitize = value => String(value || "")
+                        .replace(/\+?\d[\d\s().-]{5,}\d/g, "[numero-omitido]")
+                        .replace(/\b[A-Za-z0-9_-]{24,}\b/g, "[identificador-omitido]");
+                    const safeError = error => ({
+                        name: sanitize(error?.name || error?.constructor?.name || "Error").slice(0, 100),
+                        message: sanitize(error?.message || error || "Error desconocido").slice(0, 500)
+                    });
+                    const results = [];
+
+                    for (const target of diagnosticTargets) {
+                        const favoriteResult = {
+                            favoriteIndex: target.favoriteIndex,
+                            hasStoredChatId: target.hasStoredChatId,
+                            hasPhone: target.hasPhone,
+                            phoneResolutionError: target.phoneResolutionError,
+                            candidateCount: target.candidateChatIds.length,
+                            candidates: []
+                        };
+
+                        for (const chatId of target.candidateChatIds) {
+                            const candidate = {
+                                idKind: classifyId(chatId),
+                                createWid: false,
+                                rawChatFound: false,
+                                hasMessagesCollection: false,
+                                cachedMessageCount: null,
+                                chatSerialization: false,
+                                sampleMessageSerialization: null,
+                                failedStage: null,
+                                error: null
+                            };
+                            let chatWid;
+                            let rawChat;
+
+                            try {
+                                chatWid = window.require("WAWebWidFactory").createWid(chatId);
+                                candidate.createWid = Boolean(chatWid);
+                            } catch (error) {
+                                candidate.failedStage = "createWid";
+                                candidate.error = safeError(error);
+                                favoriteResult.candidates.push(candidate);
+                                continue;
+                            }
+
+                            try {
+                                rawChat = window.require("WAWebCollections").Chat.get(chatWid);
+                                candidate.rawChatFound = Boolean(rawChat);
+                            } catch (error) {
+                                candidate.failedStage = "chatCollectionGet";
+                                candidate.error = safeError(error);
+                                favoriteResult.candidates.push(candidate);
+                                continue;
+                            }
+
+                            if (!rawChat) {
+                                candidate.failedStage = "chatNotCached";
+                                favoriteResult.candidates.push(candidate);
+                                continue;
+                            }
+
+                            try {
+                                candidate.hasMessagesCollection = Boolean(rawChat.msgs);
+                                const cachedMessages = rawChat.msgs?.getModelsArray?.() || [];
+                                candidate.cachedMessageCount = cachedMessages.length;
+
+                                if (cachedMessages.length > 0) {
+                                    try {
+                                        await window.WWebJS.getMessageModel(cachedMessages[cachedMessages.length - 1]);
+                                        candidate.sampleMessageSerialization = true;
+                                    } catch (error) {
+                                        candidate.sampleMessageSerialization = false;
+                                        candidate.sampleMessageError = safeError(error);
+                                    }
+                                }
+                            } catch (error) {
+                                candidate.messagesInspectionError = safeError(error);
+                            }
+
+                            try {
+                                await window.WWebJS.getChatModel(rawChat);
+                                candidate.chatSerialization = true;
+                            } catch (error) {
+                                candidate.failedStage = "getChatModel";
+                                candidate.error = safeError(error);
+                            }
+
+                            favoriteResult.candidates.push(candidate);
+                        }
+
+                        results.push(favoriteResult);
+                    }
+
+                    return {
+                        inspectedFavorites: results.length,
+                        results
+                    };
+                }, safeTargets),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("El diagnóstico dirigido de favoritos excedió 20 segundos.")), 20000))
+            ]);
+            inspection.truncated = (targets || []).length > 25;
+
+            console.error(
+                "Diagnóstico dirigido de favoritos (no contiene nombres, teléfonos, ChatId ni mensajes):",
+                JSON.stringify(inspection, null, 2));
+        } catch (error) {
+            console.error("No fue posible completar el diagnóstico dirigido de favoritos:", error);
+        }
     }
 
     /**
@@ -370,6 +521,7 @@ function createWhatsAppDiagnostics({ client, runtime }) {
 
     return {
         attachBrowserDiagnostics,
+        diagnoseFavoriteChats,
         installSafeGetChatsWrapper,
         logFunctionalDiagnostics,
         logSkippedChatModelsIfAny,
