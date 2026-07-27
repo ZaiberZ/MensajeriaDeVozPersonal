@@ -348,15 +348,77 @@ function sanitizeContactId(contact) {
     return String(contact.chatId || "").replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
 }
 
+function normalizeContactAliases(aliases) {
+    if (!Array.isArray(aliases))
+        return [];
+
+    return [...new Set(aliases
+        .map(alias => String(alias || "").trim())
+        .filter(Boolean))]
+        .slice(0, 3);
+}
+
+function normalizeContactLookupName(value) {
+    return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+}
+
 function normalizeFrequentContact(id, contact) {
     return {
         id,
         name: String(contact.name || "").trim(),
+        aliases: normalizeContactAliases(contact.aliases),
         phone: cleanPhone(contact.phone),
         chatId: String(contact.chatId || "").trim(),
         source: String(contact.source || "WhatsApp").trim() || "WhatsApp",
         createdAt: contact.createdAt || new Date().toISOString()
     };
+}
+
+function validateContactLookupNames(contact, contacts) {
+    const names = [contact.name, ...contact.aliases];
+    const normalizedNames = names.map(normalizeContactLookupName).filter(Boolean);
+
+    if (contact.aliases.length > 3)
+        return "Sólo se permiten tres nombres alternativos.";
+
+    if (names.some(name => name.length > 100))
+        return "Los nombres no pueden exceder 100 caracteres.";
+
+    if (new Set(normalizedNames).size !== normalizedNames.length)
+        return "El nombre principal y los nombres alternativos no pueden repetirse.";
+
+    const otherNames = new Map();
+
+    for (const otherContact of contacts.filter(item => item.id !== contact.id)) {
+        for (const otherName of [otherContact.name, ...(otherContact.aliases || [])]) {
+            const normalizedOtherName = normalizeContactLookupName(otherName);
+
+            if (normalizedOtherName)
+                otherNames.set(normalizedOtherName, otherName);
+        }
+    }
+
+    const duplicate = names.find(name => otherNames.has(normalizeContactLookupName(name)));
+    return duplicate
+        ? `El nombre "${duplicate}" ya está asignado a otro contacto favorito.`
+        : null;
+}
+
+async function getFrequentContacts(phone) {
+    const response = await firebaseFetch(`${frequentContactsPath(phone)}.json`);
+
+    if (!response.ok)
+        throw new Error(`Firebase respondió ${response.status}.`);
+
+    const contacts = await response.json();
+    return contacts
+        ? Object.entries(contacts).map(([id, contact]) => normalizeFrequentContact(id, contact))
+        : [];
 }
 
 app.get("/contacts", (req, res) => {
@@ -379,15 +441,7 @@ app.get("/contacts/whatsapp", async (req, res) => {
 app.get("/contacts/frequent", async (req, res) => {
     try {
         const phone = requireCurrentUserPhone();
-        const response = await firebaseFetch(`${frequentContactsPath(phone)}.json`);
-
-        if (!response.ok)
-            throw new Error(`Firebase respondió ${response.status}.`);
-
-        const contacts = await response.json();
-        const list = contacts
-            ? Object.entries(contacts).map(([id, contact]) => normalizeFrequentContact(id, contact))
-            : [];
+        const list = await getFrequentContacts(phone);
 
         res.json(list.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" })));
     } catch (error) {
@@ -405,10 +459,31 @@ app.post("/contacts/frequent", async (req, res) => {
         if (!id)
             return res.status(400).json({ success: false, error: "El contacto necesita teléfono o chatId." });
 
-        const contact = normalizeFrequentContact(id, req.body ?? {});
+        let contact = normalizeFrequentContact(id, req.body ?? {});
 
         if (!contact.name || !contact.chatId)
             return res.status(400).json({ success: false, error: "El contacto necesita nombre y chatId." });
+
+        if (Array.isArray(req.body?.aliases) &&
+            req.body.aliases.filter(alias => String(alias || "").trim()).length > 3)
+            return res.status(400).json({ success: false, error: "Sólo se permiten tres nombres alternativos." });
+
+        const contacts = await getFrequentContacts(phone);
+        const existingContact = contacts.find(item => item.id === id);
+
+        if (existingContact) {
+            contact = {
+                ...contact,
+                name: existingContact.name || contact.name,
+                aliases: existingContact.aliases || [],
+                createdAt: existingContact.createdAt
+            };
+        }
+
+        const validationError = validateContactLookupNames(contact, contacts);
+
+        if (validationError)
+            return res.status(409).json({ success: false, error: validationError });
 
         const response = await firebaseFetch(`${frequentContactsPath(phone)}/${id}.json`, {
             method: "PUT",
@@ -422,6 +497,55 @@ app.post("/contacts/frequent", async (req, res) => {
         res.status(201).json({ success: true, contact });
     } catch (error) {
         console.error("Error al guardar contacto frecuente:");
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.patch("/contacts/frequent/:id", async (req, res) => {
+    try {
+        const phone = requireCurrentUserPhone();
+        const id = String(req.params.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
+        const name = String(req.body?.name || "").trim();
+
+        if (!id)
+            return res.status(400).json({ success: false, error: "El id del contacto es obligatorio." });
+
+        if (!name)
+            return res.status(400).json({ success: false, error: "El nombre del contacto es obligatorio." });
+
+        const contacts = await getFrequentContacts(phone);
+        const existingContact = contacts.find(contact => contact.id === id);
+
+        if (!existingContact)
+            return res.status(404).json({ success: false, error: "El contacto favorito no existe." });
+
+        const aliases = Object.prototype.hasOwnProperty.call(req.body ?? {}, "aliases")
+            ? normalizeContactAliases(req.body.aliases)
+            : existingContact.aliases;
+
+        if (Array.isArray(req.body?.aliases) &&
+            req.body.aliases.filter(alias => String(alias || "").trim()).length > 3)
+            return res.status(400).json({ success: false, error: "Sólo se permiten tres nombres alternativos." });
+
+        const updatedContact = { ...existingContact, name, aliases };
+        const validationError = validateContactLookupNames(updatedContact, contacts);
+
+        if (validationError)
+            return res.status(409).json({ success: false, error: validationError });
+
+        const response = await firebaseFetch(`${frequentContactsPath(phone)}/${id}.json`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, aliases })
+        });
+
+        if (!response.ok)
+            throw new Error(`Firebase respondió ${response.status}.`);
+
+        res.json({ success: true, id, name, aliases });
+    } catch (error) {
+        console.error("Error al actualizar el nombre del contacto frecuente:");
         console.error(error);
         res.status(500).json({ success: false, error: error.message });
     }

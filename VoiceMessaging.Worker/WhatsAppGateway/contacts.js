@@ -1,13 +1,21 @@
 const state = {
     whatsappContacts: [],
     frequentContacts: [],
-    selectedContact: null
+    selectedContact: null,
+    selectedFrequentContact: null
 };
 
 const search = document.getElementById("search");
 const loadContacts = document.getElementById("loadContacts");
 const addFrequent = document.getElementById("addFrequent");
 const refreshFrequent = document.getElementById("refreshFrequent");
+const frequentName = document.getElementById("frequentName");
+const frequentAliases = [
+    document.getElementById("frequentAlias1"),
+    document.getElementById("frequentAlias2"),
+    document.getElementById("frequentAlias3")
+];
+const saveFrequentName = document.getElementById("saveFrequentName");
 const whatsappContacts = document.getElementById("whatsappContacts");
 const frequentContacts = document.getElementById("frequentContacts");
 const whatsappMessage = document.getElementById("whatsappMessage");
@@ -15,6 +23,15 @@ const frequentMessage = document.getElementById("frequentMessage");
 
 function setMessage(element, text) {
     element.textContent = text || "";
+}
+
+function normalizeContactLookupName(value) {
+    return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
 }
 
 async function readJson(response) {
@@ -135,7 +152,10 @@ function renderWhatsAppContacts() {
 }
 
 function renderFrequentContacts() {
+    const selectedId = state.selectedFrequentContact?.id;
+    state.selectedFrequentContact = state.frequentContacts.find(contact => contact.id === selectedId) || null;
     frequentContacts.innerHTML = "";
+    updateFrequentEditor();
 
     if (state.frequentContacts.length === 0) {
         frequentContacts.innerHTML = "<div class=\"message\">No hay contactos frecuentes guardados.</div>";
@@ -144,18 +164,124 @@ function renderFrequentContacts() {
 
     for (const contact of state.frequentContacts) {
         const item = document.createElement("div");
-        item.className = "item";
+        item.className = "item" + (state.selectedFrequentContact?.id === contact.id ? " selected" : "");
+        item.dataset.contactId = contact.id;
+        item.tabIndex = 0;
         item.innerHTML = `
             <div>
                 <div class="name"></div>
                 <div class="phone"></div>
+                <div class="aliases"></div>
             </div>
-            <button class="danger" type="button">Eliminar</button>
+            <div class="actions">
+                <button class="secondary edit" type="button">Editar</button>
+                <button class="danger delete" type="button">Eliminar</button>
+            </div>
         `;
         item.querySelector(".name").textContent = contact.name;
         item.querySelector(".phone").textContent = contact.phone;
-        item.querySelector("button").addEventListener("click", () => deleteFrequent(contact.id));
+        item.querySelector(".aliases").textContent = contact.aliases?.length
+            ? `También: ${contact.aliases.join(", ")}`
+            : "";
+        item.addEventListener("click", () => selectFrequentContact(contact));
+        item.addEventListener("focus", () => selectFrequentContact(contact, false));
+        item.querySelector(".edit").addEventListener("click", event => {
+            event.stopPropagation();
+            selectFrequentContact(contact);
+            frequentName.focus();
+            frequentName.select();
+        });
+        item.querySelector(".delete").addEventListener("click", event => {
+            event.stopPropagation();
+            deleteFrequent(contact.id);
+        });
         frequentContacts.appendChild(item);
+    }
+}
+
+function selectFrequentContact(contact, shouldRender = true) {
+    state.selectedFrequentContact = contact;
+    updateFrequentEditor();
+
+    if (shouldRender)
+        renderFrequentContacts();
+    else {
+        for (const item of frequentContacts.querySelectorAll(".item[data-contact-id]"))
+            item.classList.toggle("selected", item.dataset.contactId === contact.id);
+    }
+}
+
+function updateFrequentEditor() {
+    const contact = state.selectedFrequentContact;
+    frequentName.disabled = !contact;
+    saveFrequentName.disabled = !contact;
+    for (const aliasInput of frequentAliases)
+        aliasInput.disabled = !contact;
+    frequentName.placeholder = contact
+        ? "Nombre del contacto favorito"
+        : "Selecciona un favorito para editar su nombre";
+
+    if (document.activeElement !== frequentName)
+        frequentName.value = contact?.name || "";
+
+    frequentAliases.forEach((input, index) => {
+        if (document.activeElement !== input)
+            input.value = contact?.aliases?.[index] || "";
+    });
+}
+
+async function updateFrequentName() {
+    const contact = state.selectedFrequentContact;
+    const name = frequentName.value.trim();
+    const aliases = frequentAliases.map(input => input.value.trim()).filter(Boolean);
+
+    if (!contact)
+        return;
+
+    if (!name) {
+        setMessage(frequentMessage, "El nombre del contacto es obligatorio.");
+        frequentName.focus();
+        return;
+    }
+
+    const ownNames = [name, ...aliases].map(normalizeContactLookupName);
+
+    if (new Set(ownNames).size !== ownNames.length) {
+        setMessage(frequentMessage, "El nombre principal y los nombres alternativos no pueden repetirse.");
+        return;
+    }
+
+    const otherNames = new Set(state.frequentContacts
+        .filter(item => item.id !== contact.id)
+        .flatMap(item => [item.name, ...(item.aliases || [])])
+        .map(normalizeContactLookupName)
+        .filter(Boolean));
+    const duplicate = [name, ...aliases].find(value => otherNames.has(normalizeContactLookupName(value)));
+
+    if (duplicate) {
+        setMessage(frequentMessage, `El nombre "${duplicate}" ya está asignado a otro contacto favorito.`);
+        return;
+    }
+
+    frequentName.disabled = true;
+    for (const aliasInput of frequentAliases)
+        aliasInput.disabled = true;
+    saveFrequentName.disabled = true;
+    setMessage(frequentMessage, "Guardando nombres...");
+
+    try {
+        await fetch(`/contacts/frequent/${encodeURIComponent(contact.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, aliases })
+        }).then(readJson);
+        state.selectedFrequentContact = { ...contact, name, aliases };
+        await loadFrequentContacts();
+        setMessage(frequentMessage, "Nombres actualizados correctamente.");
+    } catch (error) {
+        setMessage(frequentMessage, error.message);
+    } finally {
+        updateFrequentEditor();
     }
 }
 
@@ -248,6 +374,8 @@ async function deleteFrequent(id) {
 
     try {
         await fetch(`/contacts/frequent/${encodeURIComponent(id)}`, { method: "DELETE" }).then(readJson);
+        if (state.selectedFrequentContact?.id === id)
+            state.selectedFrequentContact = null;
         await loadFrequentContacts();
     } catch (error) {
         setMessage(frequentMessage, error.message);
@@ -282,6 +410,21 @@ addFrequent.addEventListener("keydown", event => {
     }
 });
 refreshFrequent.addEventListener("click", loadFrequentContacts);
+saveFrequentName.addEventListener("click", updateFrequentName);
+frequentName.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        updateFrequentName();
+    }
+});
+for (const aliasInput of frequentAliases) {
+    aliasInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            updateFrequentName();
+        }
+    });
+}
 whatsappContacts.addEventListener("keydown", event => {
     if (event.ctrlKey && event.key === "Enter") {
         event.preventDefault();

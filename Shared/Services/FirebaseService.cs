@@ -299,14 +299,21 @@ public class FirebaseService
         var contacts = await GetFrequentContactsAsync(phone);
         var normalizedName = contactName.Trim();
         var exact = contacts.FirstOrDefault(contact =>
-            string.Equals(contact.Name?.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase));
+            GetContactLookupNames(contact).Any(name =>
+                string.Equals(name.Trim(), normalizedName, StringComparison.OrdinalIgnoreCase)));
 
         if (exact != null)
             return exact;
 
-        return contacts.FirstOrDefault(contact =>
-            !string.IsNullOrWhiteSpace(contact.Name) &&
-            contact.Name.Contains(normalizedName, StringComparison.OrdinalIgnoreCase));
+        return contacts.FirstOrDefault(contact => GetContactLookupNames(contact)
+            .Any(name => name.Contains(normalizedName, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static IEnumerable<string> GetContactLookupNames(ContactDto contact)
+    {
+        return new[] { contact.Name }
+            .Concat(contact.Aliases ?? [])
+            .Where(name => !string.IsNullOrWhiteSpace(name));
     }
 
     public async Task DeletePendingMessageAsync(string messageId)

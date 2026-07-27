@@ -13,19 +13,27 @@
         }
 
         body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
             margin: 0;
+            overflow: hidden;
         }
 
         header {
             background: #ffffff;
             border-bottom: 1px solid #d9e1ef;
+            flex: 0 0 auto;
             padding: 18px 24px;
         }
 
         main {
             display: grid;
+            flex: 1 1 auto;
             gap: 20px;
             grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+            min-height: 0;
+            overflow: hidden;
             padding: 24px;
         }
 
@@ -33,6 +41,11 @@
             background: #ffffff;
             border: 1px solid #d9e1ef;
             border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            min-width: 0;
+            overflow: hidden;
             padding: 18px;
         }
 
@@ -94,8 +107,36 @@
         }
 
         .list {
+            align-content: start;
             display: grid;
+            flex: 1 1 auto;
             gap: 10px;
+            min-height: 0;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: 8px 6px 8px 0;
+            scrollbar-color: #aab8cc #f4f7fb;
+            scrollbar-gutter: stable;
+            scrollbar-width: thin;
+        }
+
+        .list::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .list::-webkit-scrollbar-track {
+            background: #f4f7fb;
+            border-radius: 999px;
+        }
+
+        .list::-webkit-scrollbar-thumb {
+            background: #aab8cc;
+            border: 2px solid #f4f7fb;
+            border-radius: 999px;
+        }
+
+        .list::-webkit-scrollbar-thumb:hover {
+            background: #7f91aa;
         }
 
         .item {
@@ -136,10 +177,51 @@
             min-height: 20px;
         }
 
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .alias-editor {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-bottom: 14px;
+        }
+
+        .aliases {
+            color: #506078;
+            font-size: 13px;
+            margin-top: 3px;
+        }
+
         @media (max-width: 800px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                overflow: auto;
+            }
+
             main {
                 grid-template-columns: 1fr;
+                min-height: auto;
+                overflow: visible;
                 padding: 14px;
+            }
+
+            section {
+                min-height: 420px;
+                overflow: hidden;
+            }
+
+            .list {
+                max-height: 52vh;
+                min-height: 220px;
+            }
+
+            .alias-editor {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -164,7 +246,16 @@
 
         <section>
             <h2>Frecuentes guardados</h2>
-            <button id="refreshFrequent" class="secondary">Actualizar</button>
+            <div class="toolbar">
+                <button id="refreshFrequent" class="secondary">Actualizar</button>
+                <input id="frequentName" type="text" maxlength="100" placeholder="Selecciona un favorito para editar su nombre" disabled>
+                <button id="saveFrequentName" type="button" disabled>Guardar nombres</button>
+            </div>
+            <div class="alias-editor">
+                <input id="frequentAlias1" type="text" maxlength="100" placeholder="Nombre alternativo 1" disabled>
+                <input id="frequentAlias2" type="text" maxlength="100" placeholder="Nombre alternativo 2" disabled>
+                <input id="frequentAlias3" type="text" maxlength="100" placeholder="Nombre alternativo 3" disabled>
+            </div>
             <div id="frequentContacts" class="list" style="margin-top:14px"></div>
             <div id="frequentMessage" class="message"></div>
         </section>

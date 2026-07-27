@@ -209,7 +209,8 @@ public class AlexaRequestRouter
     {
         var normalizedName = NormalizeContactName(contactName);
 
-        return contacts.FirstOrDefault(contact => NormalizeContactName(contact.Name) == normalizedName);
+        return contacts.FirstOrDefault(contact =>
+            GetContactLookupNames(contact).Any(name => NormalizeContactName(name) == normalizedName));
     }
 
     private static ContactDto? FindPartialContact(List<ContactDto> contacts, string contactName)
@@ -220,13 +221,27 @@ public class AlexaRequestRouter
             return null;
 
         var candidate = contacts
-            .Select(contact => new { Contact = contact, Score = GetContactMatchScore(normalizedName, NormalizeContactName(contact.Name)) })
+            .Select(contact => new
+            {
+                Contact = contact,
+                Score = GetContactLookupNames(contact)
+                    .Select(name => GetContactMatchScore(normalizedName, NormalizeContactName(name)))
+                    .DefaultIfEmpty(-1)
+                    .Max()
+            })
             .Where(candidate => candidate.Score >= 0)
             .OrderByDescending(candidate => candidate.Score)
             .ThenBy(candidate => candidate.Contact.Name.Length)
             .FirstOrDefault();
 
         return candidate?.Contact;
+    }
+
+    private static IEnumerable<string> GetContactLookupNames(ContactDto contact)
+    {
+        return new[] { contact.Name }
+            .Concat(contact.Aliases ?? [])
+            .Where(name => !string.IsNullOrWhiteSpace(name));
     }
 
     private static int GetContactMatchScore(string searchName, string contactName)
