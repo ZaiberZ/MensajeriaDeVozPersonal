@@ -34,7 +34,7 @@ Name: "{commonappdata}\VoiceMessaging\whatsapp-auth"; Permissions: users-modify
 
 [Icons]
 ;Name: "{commondesktop}\Voice Messaging QR"; Filename: "http://localhost:3000/status"; IconFilename: "{app}\AlexaWhatsApp.ico"
-Name: "{commondesktop}\Estado de Voice Messaging"; Filename: "http://localhost:3000/app-status"; IconFilename: "{app}\AlexaWhatsApp.ico"
+Name: "{commondesktop}\WhatsApp Gateway"; Filename: "http://whatsappgateway:3000/app-status"; IconFilename: "{app}\AlexaWhatsApp.ico"
 ;Name: "{commondesktop}\Abrir Airbnb"; Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"""; WorkingDir: "{app}"; IconFilename: "{app}\AlexaWhatsApp.ico"
 ; Pausado por ahora: no abrir Airbnb automaticamente al iniciar Windows.
 ;Name: "{commonstartup}\Voice Messaging Airbnb"; Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"" voicemessaging-airbnb://startup"; WorkingDir: "{app}"; IconFilename: "{app}\AlexaWhatsApp.ico"
@@ -53,7 +53,7 @@ Filename: "{sys}\sc.exe"; Parameters: "start VoiceMessagingWorker"; Flags: runhi
 
 ; Pausado por ahora: no lanzar el Chrome separado de Airbnb durante la instalacion.
 ;Filename: "{cmd}"; Parameters: "/C ""{app}\open-airbnb-login.cmd"" voicemessaging-airbnb://startup"; WorkingDir: "{app}"; Flags: runhidden nowait
-Filename: "http://localhost:3000/whatsapp/qr"; Description: "Abrir página de autenticación de WhatsApp"; Flags: shellexec postinstall skipifsilent
+Filename: "http://whatsappgateway:3000/whatsapp/qr"; Description: "Abrir página de autenticación de WhatsApp"; Flags: shellexec postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop VoiceMessagingWorker"; Flags: runhidden waituntilterminated
@@ -72,6 +72,101 @@ Type: dirifempty; Name: "{app}\WhatsAppGateway"
 Type: dirifempty; Name: "{app}"
 
 [Code]
+
+const
+  WhatsAppGatewayHostLine =
+    '127.0.0.1 whatsappgateway # VoiceMessaging WhatsApp Gateway';
+
+function IsWhatsAppGatewayHostLine(const Line: String): Boolean;
+begin
+  Result := CompareText(Trim(Line), WhatsAppGatewayHostLine) = 0;
+end;
+
+procedure RemoveWhatsAppGatewayHostAlias();
+var
+  HostsPath: String;
+  Lines: TArrayOfString;
+  FilteredLines: TArrayOfString;
+  I: Integer;
+  OutputIndex: Integer;
+  Changed: Boolean;
+begin
+  HostsPath := ExpandConstant('{sys}\drivers\etc\hosts');
+
+  if not LoadStringsFromFile(HostsPath, Lines) then
+  begin
+    Log('No fue posible leer el archivo hosts: ' + HostsPath);
+    Exit;
+  end;
+
+  SetArrayLength(FilteredLines, GetArrayLength(Lines));
+  OutputIndex := 0;
+  Changed := False;
+
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    if IsWhatsAppGatewayHostLine(Lines[I]) then
+      Changed := True
+    else
+    begin
+      FilteredLines[OutputIndex] := Lines[I];
+      OutputIndex := OutputIndex + 1;
+    end;
+  end;
+
+  if not Changed then
+    Exit;
+
+  SetArrayLength(FilteredLines, OutputIndex);
+  if SaveStringsToFile(HostsPath, FilteredLines, False) then
+    Log('Se elimino el alias local whatsappgateway.')
+  else
+    Log('No fue posible eliminar el alias local whatsappgateway.');
+end;
+
+procedure InstallWhatsAppGatewayHostAlias();
+var
+  HostsPath: String;
+  Lines: TArrayOfString;
+  I: Integer;
+begin
+  HostsPath := ExpandConstant('{sys}\drivers\etc\hosts');
+
+  if not LoadStringsFromFile(HostsPath, Lines) then
+  begin
+    Log('No fue posible leer el archivo hosts: ' + HostsPath);
+    Exit;
+  end;
+
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    if IsWhatsAppGatewayHostLine(Lines[I]) then
+    begin
+      Log('El alias local whatsappgateway ya estaba registrado.');
+      Exit;
+    end;
+  end;
+
+  SetArrayLength(Lines, GetArrayLength(Lines) + 1);
+  Lines[GetArrayLength(Lines) - 1] := WhatsAppGatewayHostLine;
+
+  if SaveStringsToFile(HostsPath, Lines, False) then
+    Log('Se registro el alias local whatsappgateway.')
+  else
+    Log('No fue posible registrar el alias local whatsappgateway.');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    InstallWhatsAppGatewayHostAlias();
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    RemoveWhatsAppGatewayHostAlias();
+end;
 
 const
   ServiceName = 'VoiceMessagingWorker';
