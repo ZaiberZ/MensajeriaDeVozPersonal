@@ -149,9 +149,11 @@ public sealed class SpeechRecognitionService
         }
     }
 
-    public async Task ListenForCommandsAsync(Func<string, Task> commandHandler, CancellationToken cancellationToken)
+    public async Task ListenContinuouslyAsync(
+        Func<string, Task> recognizedTextHandler, Func<bool> useRestrictedGrammar, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(commandHandler);
+        ArgumentNullException.ThrowIfNull(recognizedTextHandler);
+        ArgumentNullException.ThrowIfNull(useRestrictedGrammar);
 
         string modelPath = GetSpanishModelPath();
         if (!IsSpanishModelInstalled())
@@ -166,24 +168,32 @@ public sealed class SpeechRecognitionService
             throw new InvalidOperationException("Windows no detectó ningún micrófono o dispositivo de entrada de audio.");
         }
 
-        await Task.Run(() => ListenForCommandsCoreAsync(modelPath, commandHandler, cancellationToken), cancellationToken);
+        await Task.Run(
+            () => ListenContinuouslyCoreAsync(modelPath, recognizedTextHandler, useRestrictedGrammar, cancellationToken),
+            cancellationToken);
     }
 
-    private async Task ListenForCommandsCoreAsync(string modelPath, Func<string, Task> commandHandler, CancellationToken cancellationToken)
+    private async Task ListenContinuouslyCoreAsync(
+        string modelPath,
+        Func<string, Task> recognizedTextHandler,
+        Func<bool> useRestrictedGrammar,
+        CancellationToken cancellationToken)
     {
         using Model model = new(modelPath);
-        using VoskRecognizer recognizer = new(model, SampleRate, CommandGrammar);
+        using VoskRecognizer commandRecognizer = new(model, SampleRate, CommandGrammar);
+        using VoskRecognizer conversationRecognizer = new(model, SampleRate);
         using WaveInEvent microphone = CreateMicrophone();
         Channel<string> recognizedCommands = Channel.CreateUnbounded<string>();
         TaskCompletionSource recordingStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        VoskRecognizer activeRecognizer = commandRecognizer;
 
         EventHandler<WaveInEventArgs> dataAvailable = (_, eventArgs) =>
         {
             try
             {
-                if (recognizer.AcceptWaveform(eventArgs.Buffer, eventArgs.BytesRecorded))
+                if (activeRecognizer.AcceptWaveform(eventArgs.Buffer, eventArgs.BytesRecorded))
                 {
-                    string? text = ExtractText(recognizer.Result());
+                    string? text = ExtractText(activeRecognizer.Result());
                     if (!string.IsNullOrWhiteSpace(text))
                     {
                         recognizedCommands.Writer.TryWrite(text);
@@ -208,7 +218,7 @@ public sealed class SpeechRecognitionService
 
         microphone.DataAvailable += dataAvailable;
         microphone.RecordingStopped += recordingStoppedHandler;
-        Debug.WriteLine("Inicio de la escucha continua de comandos.");
+        Debug.WriteLine("Inicio de la escucha continua.");
 
         try
         {
@@ -219,7 +229,8 @@ public sealed class SpeechRecognitionService
                 {
                 }
 
-                recognizer.Reset();
+                activeRecognizer = useRestrictedGrammar() ? commandRecognizer : conversationRecognizer;
+                activeRecognizer.Reset();
                 await audioLock.WaitAsync(cancellationToken);
                 bool ownsAudioLock = true;
                 bool recordingStarted = false;
@@ -238,7 +249,7 @@ public sealed class SpeechRecognitionService
                     audioLock.Release();
                     ownsAudioLock = false;
 
-                    await commandHandler(recognizedText);
+                    await recognizedTextHandler(recognizedText);
                     await Task.Delay(350, cancellationToken);
                 }
                 finally
@@ -265,7 +276,7 @@ public sealed class SpeechRecognitionService
             microphone.DataAvailable -= dataAvailable;
             microphone.RecordingStopped -= recordingStoppedHandler;
             recognizedCommands.Writer.TryComplete();
-            Debug.WriteLine("Fin de la escucha continua de comandos.");
+            Debug.WriteLine("Fin de la escucha continua.");
         }
     }
 

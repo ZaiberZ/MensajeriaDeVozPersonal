@@ -12,7 +12,7 @@ public partial class MainWindow : Window
     private readonly SpeechRecognitionService speechRecognitionService;
     private CancellationTokenSource? commandListeningCancellation;
     private Task? commandSessionTask;
-    private InterpreterState interpreterState = InterpreterState.Inactive;
+    private volatile InterpreterState interpreterState = InterpreterState.Inactive;
     private bool allowClose;
 
     public MainWindow(SpeechService speechService, SpeechRecognitionService speechRecognitionService)
@@ -162,13 +162,23 @@ public partial class MainWindow : Window
         Debug.WriteLine("Iniciando sesión de control por voz.");
         await speechService.SpeakAsync(
             "Control por voz activado. Puede decir ayuda para conocer los comandos.", "es", cancellationToken);
-        await speechRecognitionService.ListenForCommandsAsync(HandleCommandAsync, cancellationToken);
+        await speechRecognitionService.ListenContinuouslyAsync(
+            HandleRecognizedTextAsync,
+            () => interpreterState != InterpreterState.ListeningSpanish,
+            cancellationToken);
     }
 
-    private async Task HandleCommandAsync(string recognizedText)
+    private async Task HandleRecognizedTextAsync(string recognizedText)
     {
         string command = NormalizeCommand(recognizedText);
-        await Dispatcher.InvokeAsync(() => LastCommandTextBlock.Text = $"Último comando: {recognizedText}");
+        await Dispatcher.InvokeAsync(() => LastCommandTextBlock.Text = $"Último texto reconocido: {recognizedText}");
+
+        if (interpreterState == InterpreterState.ListeningSpanish)
+        {
+            await HandleSpanishConversationTextAsync(recognizedText, command);
+            return;
+        }
+
         Debug.WriteLine($"Comando reconocido: {recognizedText} (normalizado: {command})");
 
         CancellationToken cancellationToken = commandListeningCancellation?.Token ?? CancellationToken.None;
@@ -178,9 +188,8 @@ public partial class MainWindow : Window
             case "iniciar interprete":
             case "inicia el interprete":
             case "inicia interprete":
-                await SetInterpreterStateAsync(InterpreterState.Ready);
-                await speechService.SpeakAsync(
-                    "El intérprete está listo. La traducción todavía no está disponible.", "es", cancellationToken);
+                await SetInterpreterStateAsync(InterpreterState.ListeningSpanish);
+                await speechService.SpeakAsync("Puede comenzar a hablar en español.", "es", cancellationToken);
                 break;
 
             case "repetir":
@@ -205,6 +214,33 @@ public partial class MainWindow : Window
 
             default:
                 Debug.WriteLine($"Texto reconocido no asociado a un comando: {recognizedText}");
+                break;
+        }
+    }
+
+    private async Task HandleSpanishConversationTextAsync(string recognizedText, string normalizedText)
+    {
+        CancellationToken cancellationToken = commandListeningCancellation?.Token ?? CancellationToken.None;
+
+        switch (normalizedText)
+        {
+            case "terminar interprete":
+            case "termina el interprete":
+            case "finalizar interprete":
+                await SetInterpreterStateAsync(InterpreterState.Inactive);
+                await speechService.SpeakAsync("Conversación finalizada.", "es", cancellationToken);
+                break;
+
+            case "repetir":
+            case "repite":
+            case "repetir mensaje":
+                await speechService.RepeatLastAsync("es", cancellationToken);
+                break;
+
+            default:
+                await Dispatcher.InvokeAsync(() => RecognizedTextBlock.Text = recognizedText);
+                Debug.WriteLine($"Frase reconocida en conversación: {recognizedText}");
+                await speechService.SpeakAsync($"Escuché: {recognizedText}", "es", cancellationToken);
                 break;
         }
     }
