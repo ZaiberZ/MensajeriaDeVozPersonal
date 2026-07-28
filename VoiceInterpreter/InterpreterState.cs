@@ -3,6 +3,6 @@ namespace VoiceInterpreter;
 public enum InterpreterState
 {
     Inactive,
-    Ready,
-    ListeningSpanish
+    ListeningSpanish,
+    ListeningEnglish
 }

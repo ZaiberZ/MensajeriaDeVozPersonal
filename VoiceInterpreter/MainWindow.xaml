@@ -5,10 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:VoiceInterpreter"
         mc:Ignorable="d"
-        Title="VoiceInterpreter" Height="720" Width="800">
+        Title="VoiceInterpreter" Height="760" Width="800">
     <Grid>
-        <StackPanel HorizontalAlignment="Center"
-                    VerticalAlignment="Center">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0,24"
+                        HorizontalAlignment="Center">
             <Button x:Name="TestSpanishButton"
                     Width="140"
                     Height="40"
@@ -59,12 +60,22 @@
                        Text="Último texto reconocido: ninguno"
                        TextAlignment="Center" />
             <TextBlock x:Name="InterpreterStateTextBlock"
-                       Margin="0,0,0,16"
+                       Margin="0,0,0,4"
                        Text="Estado del intérprete: Inactive"
+                       TextAlignment="Center" />
+            <TextBlock x:Name="ListeningLanguageTextBlock"
+                       Margin="0,0,0,16"
+                       Text="Idioma escuchado: comandos en español"
                        TextAlignment="Center" />
             <TextBlock Margin="0,0,0,8"
                        FontWeight="SemiBold"
                        Text="Herramientas de configuración y soporte"
+                       TextAlignment="Center" />
+            <TextBlock x:Name="SpanishModelStatusTextBlock"
+                       Margin="0,0,0,4"
+                       TextAlignment="Center" />
+            <TextBlock x:Name="EnglishModelStatusTextBlock"
+                       Margin="0,0,0,8"
                        TextAlignment="Center" />
             <Button x:Name="DownloadSpanishModelButton"
                     Width="220"
@@ -72,6 +83,12 @@
                     Margin="0,0,0,8"
                     Click="DownloadSpanishModel_Click"
                     Content="Descargar modelo de español" />
+            <Button x:Name="DownloadEnglishModelButton"
+                    Width="220"
+                    Height="40"
+                    Margin="0,0,0,8"
+                    Click="DownloadEnglishModel_Click"
+                    Content="Download English model" />
             <ProgressBar x:Name="ModelDownloadProgressBar"
                          Width="220"
                          Height="8"
@@ -89,6 +106,7 @@
                     Height="40"
                     Click="OpenVoiceSettings_Click"
                     Content="Install English voice" />
-        </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Window>

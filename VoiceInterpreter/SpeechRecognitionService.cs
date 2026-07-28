@@ -13,6 +13,7 @@ public sealed class SpeechRecognitionService
 {
     private const int SampleRate = 16000;
     private const string SpanishModelUrl = "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip";
+    private const string EnglishModelUrl = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip";
     private static readonly string CommandGrammar = JsonSerializer.Serialize(new[]
     {
         "iniciar intérprete",
@@ -79,25 +80,55 @@ public sealed class SpeechRecognitionService
         return Path.GetFullPath(settings.SpanishVoskModelPath, AppContext.BaseDirectory);
     }
 
+    public string GetEnglishModelPath()
+    {
+        return Path.GetFullPath(settings.EnglishVoskModelPath, AppContext.BaseDirectory);
+    }
+
     public bool IsSpanishModelInstalled()
     {
-        string modelPath = GetSpanishModelPath();
-        return Directory.Exists(Path.Combine(modelPath, "am"))
-            && Directory.Exists(Path.Combine(modelPath, "conf"));
+        return IsModelInstalled(GetSpanishModelPath());
+    }
+
+    public bool IsEnglishModelInstalled()
+    {
+        return IsModelInstalled(GetEnglishModelPath());
     }
 
     public async Task DownloadSpanishModelAsync(IProgress<double>? progress = null, CancellationToken cancellationToken = default)
     {
-        if (IsSpanishModelInstalled())
+        await DownloadModelAsync(
+            SpanishModelUrl, GetSpanishModelPath(), "vosk-model-small-es-0.42", progress, cancellationToken);
+    }
+
+    public async Task DownloadEnglishModelAsync(IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+    {
+        await DownloadModelAsync(
+            EnglishModelUrl, GetEnglishModelPath(), "vosk-model-small-en-us-0.15", progress, cancellationToken);
+    }
+
+    private static bool IsModelInstalled(string modelPath)
+    {
+        return Directory.Exists(Path.Combine(modelPath, "am"))
+            && Directory.Exists(Path.Combine(modelPath, "conf"));
+    }
+
+    private static async Task DownloadModelAsync(
+        string modelUrl,
+        string modelPath,
+        string modelName,
+        IProgress<double>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (IsModelInstalled(modelPath))
         {
             progress?.Report(1);
             return;
         }
 
-        string modelPath = GetSpanishModelPath();
         string modelsDirectory = Directory.GetParent(modelPath)?.FullName
             ?? throw new InvalidOperationException($"La ruta del modelo no es válida: '{modelPath}'.");
-        string temporaryZipPath = Path.Combine(Path.GetTempPath(), $"vosk-model-small-es-0.42-{Guid.NewGuid():N}.zip");
+        string temporaryZipPath = Path.Combine(Path.GetTempPath(), $"{modelName}-{Guid.NewGuid():N}.zip");
 
         Directory.CreateDirectory(modelsDirectory);
 
@@ -105,7 +136,7 @@ public sealed class SpeechRecognitionService
         {
             using HttpClient httpClient = new();
             using HttpResponseMessage response = await httpClient.GetAsync(
-                SpanishModelUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                modelUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             long? totalBytes = response.Content.Headers.ContentLength;
@@ -132,7 +163,7 @@ public sealed class SpeechRecognitionService
             await destination.DisposeAsync();
             ZipFile.ExtractToDirectory(temporaryZipPath, modelsDirectory, overwriteFiles: true);
 
-            if (!IsSpanishModelInstalled())
+            if (!IsModelInstalled(modelPath))
             {
                 throw new InvalidDataException(
                     $"El archivo se descargó, pero no contiene un modelo válido en '{modelPath}'.");
@@ -150,16 +181,16 @@ public sealed class SpeechRecognitionService
     }
 
     public async Task ListenContinuouslyAsync(
-        Func<string, Task> recognizedTextHandler, Func<bool> useRestrictedGrammar, CancellationToken cancellationToken)
+        Func<string, Task> recognizedTextHandler, Func<InterpreterState> getInterpreterState, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(recognizedTextHandler);
-        ArgumentNullException.ThrowIfNull(useRestrictedGrammar);
+        ArgumentNullException.ThrowIfNull(getInterpreterState);
 
-        string modelPath = GetSpanishModelPath();
+        string spanishModelPath = GetSpanishModelPath();
         if (!IsSpanishModelInstalled())
         {
             throw new DirectoryNotFoundException(
-                $"No se encontró el modelo de español de Vosk en '{modelPath}'.");
+                $"No se encontró el modelo de español de Vosk en '{spanishModelPath}'.");
         }
 
         LogInputDevices();
@@ -169,19 +200,23 @@ public sealed class SpeechRecognitionService
         }
 
         await Task.Run(
-            () => ListenContinuouslyCoreAsync(modelPath, recognizedTextHandler, useRestrictedGrammar, cancellationToken),
+            () => ListenContinuouslyCoreAsync(
+                spanishModelPath, GetEnglishModelPath(), recognizedTextHandler, getInterpreterState, cancellationToken),
             cancellationToken);
     }
 
     private async Task ListenContinuouslyCoreAsync(
-        string modelPath,
+        string spanishModelPath,
+        string englishModelPath,
         Func<string, Task> recognizedTextHandler,
-        Func<bool> useRestrictedGrammar,
+        Func<InterpreterState> getInterpreterState,
         CancellationToken cancellationToken)
     {
-        using Model model = new(modelPath);
-        using VoskRecognizer commandRecognizer = new(model, SampleRate, CommandGrammar);
-        using VoskRecognizer conversationRecognizer = new(model, SampleRate);
+        using Model spanishModel = new(spanishModelPath);
+        using Model? englishModel = IsModelInstalled(englishModelPath) ? new Model(englishModelPath) : null;
+        using VoskRecognizer commandRecognizer = new(spanishModel, SampleRate, CommandGrammar);
+        using VoskRecognizer spanishRecognizer = new(spanishModel, SampleRate);
+        using VoskRecognizer? englishRecognizer = englishModel is null ? null : new VoskRecognizer(englishModel, SampleRate);
         using WaveInEvent microphone = CreateMicrophone();
         Channel<string> recognizedCommands = Channel.CreateUnbounded<string>();
         TaskCompletionSource recordingStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -229,7 +264,13 @@ public sealed class SpeechRecognitionService
                 {
                 }
 
-                activeRecognizer = useRestrictedGrammar() ? commandRecognizer : conversationRecognizer;
+                activeRecognizer = getInterpreterState() switch
+                {
+                    InterpreterState.ListeningSpanish => spanishRecognizer,
+                    InterpreterState.ListeningEnglish => englishRecognizer
+                        ?? throw new InvalidOperationException("El modelo de inglés no está instalado para esta sesión."),
+                    _ => commandRecognizer
+                };
                 activeRecognizer.Reset();
                 await audioLock.WaitAsync(cancellationToken);
                 bool ownsAudioLock = true;

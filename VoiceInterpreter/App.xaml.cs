@@ -22,7 +22,8 @@ public partial class App : Application
         {
             SpanishVoice = configuration["SpanishVoice"] ?? string.Empty,
             EnglishVoice = configuration["EnglishVoice"] ?? string.Empty,
-            SpanishVoskModelPath = configuration["SpanishVoskModelPath"] ?? "Models/vosk-model-small-es-0.42"
+            SpanishVoskModelPath = configuration["SpanishVoskModelPath"] ?? "Models/vosk-model-small-es-0.42",
+            EnglishVoskModelPath = configuration["EnglishVoskModelPath"] ?? "Models/vosk-model-small-en-us-0.15"
         };
 
         ServiceCollection services = new();

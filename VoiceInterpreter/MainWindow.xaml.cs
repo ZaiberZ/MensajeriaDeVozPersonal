@@ -164,7 +164,7 @@ public partial class MainWindow : Window
             "Control por voz activado. Puede decir ayuda para conocer los comandos.", "es", cancellationToken);
         await speechRecognitionService.ListenContinuouslyAsync(
             HandleRecognizedTextAsync,
-            () => interpreterState != InterpreterState.ListeningSpanish,
+            () => interpreterState,
             cancellationToken);
     }
 
@@ -179,6 +179,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (interpreterState == InterpreterState.ListeningEnglish)
+        {
+            await HandleEnglishConversationTextAsync(recognizedText, command);
+            return;
+        }
+
         Debug.WriteLine($"Comando reconocido: {recognizedText} (normalizado: {command})");
 
         CancellationToken cancellationToken = commandListeningCancellation?.Token ?? CancellationToken.None;
@@ -188,6 +194,12 @@ public partial class MainWindow : Window
             case "iniciar interprete":
             case "inicia el interprete":
             case "inicia interprete":
+                if (!speechRecognitionService.IsEnglishModelInstalled())
+                {
+                    await speechService.SpeakAsync("El modelo de inglés no está instalado.", "es", cancellationToken);
+                    break;
+                }
+
                 await SetInterpreterStateAsync(InterpreterState.ListeningSpanish);
                 await speechService.SpeakAsync("Puede comenzar a hablar en español.", "es", cancellationToken);
                 break;
@@ -239,8 +251,43 @@ public partial class MainWindow : Window
 
             default:
                 await Dispatcher.InvokeAsync(() => RecognizedTextBlock.Text = recognizedText);
-                Debug.WriteLine($"Frase reconocida en conversación: {recognizedText}");
-                await speechService.SpeakAsync($"Escuché: {recognizedText}", "es", cancellationToken);
+                Debug.WriteLine($"Frase reconocida en español: {recognizedText}");
+                await speechService.SpeakAsync($"Escuché en español: {recognizedText}", "es", cancellationToken);
+                await SetInterpreterStateAsync(InterpreterState.ListeningEnglish);
+                await speechService.SpeakAsync("You can speak in English.", "en", cancellationToken);
+                break;
+        }
+    }
+
+    private async Task HandleEnglishConversationTextAsync(string recognizedText, string normalizedText)
+    {
+        CancellationToken cancellationToken = commandListeningCancellation?.Token ?? CancellationToken.None;
+
+        switch (normalizedText)
+        {
+            case "terminar interprete":
+            case "termina el interprete":
+            case "finalizar interprete":
+            case "stop interpreter":
+            case "end interpreter":
+                await SetInterpreterStateAsync(InterpreterState.Inactive);
+                await speechService.SpeakAsync("Conversation finished.", "en", cancellationToken);
+                break;
+
+            case "repetir":
+            case "repite":
+            case "repetir mensaje":
+            case "repeat":
+            case "repeat that":
+                await speechService.RepeatLastAsync("en", cancellationToken);
+                break;
+
+            default:
+                await Dispatcher.InvokeAsync(() => RecognizedTextBlock.Text = recognizedText);
+                Debug.WriteLine($"Frase reconocida en inglés: {recognizedText}");
+                await speechService.SpeakAsync($"I heard in English: {recognizedText}", "en", cancellationToken);
+                await SetInterpreterStateAsync(InterpreterState.ListeningSpanish);
+                await speechService.SpeakAsync("Puede hablar en español.", "es", cancellationToken);
                 break;
         }
     }
@@ -248,30 +295,60 @@ public partial class MainWindow : Window
     private async Task SetInterpreterStateAsync(InterpreterState state)
     {
         interpreterState = state;
-        await Dispatcher.InvokeAsync(() => InterpreterStateTextBlock.Text = $"Estado del intérprete: {interpreterState}");
+        await Dispatcher.InvokeAsync(() =>
+        {
+            InterpreterStateTextBlock.Text = $"Estado del intérprete: {interpreterState}";
+            ListeningLanguageTextBlock.Text = state switch
+            {
+                InterpreterState.ListeningSpanish => "Idioma escuchado: español",
+                InterpreterState.ListeningEnglish => "Idioma escuchado: inglés",
+                _ => "Idioma escuchado: comandos en español"
+            };
+        });
         Debug.WriteLine($"Estado del intérprete: {interpreterState}");
     }
 
     private async void DownloadSpanishModel_Click(object sender, RoutedEventArgs e)
     {
+        await DownloadModelAsync(isEnglish: false);
+    }
+
+    private async void DownloadEnglishModel_Click(object sender, RoutedEventArgs e)
+    {
+        await DownloadModelAsync(isEnglish: true);
+    }
+
+    private async Task DownloadModelAsync(bool isEnglish)
+    {
         DownloadSpanishModelButton.IsEnabled = false;
+        DownloadEnglishModelButton.IsEnabled = false;
         ModelDownloadProgressBar.Value = 0;
         ModelDownloadProgressBar.Visibility = Visibility.Visible;
         Progress<double> progress = new(value => ModelDownloadProgressBar.Value = value);
 
         try
         {
-            await speechRecognitionService.DownloadSpanishModelAsync(progress);
+            if (isEnglish)
+            {
+                await speechRecognitionService.DownloadEnglishModelAsync(progress);
+            }
+            else
+            {
+                await speechRecognitionService.DownloadSpanishModelAsync(progress);
+            }
+
             UpdateModelControls();
         }
         catch (Exception exception)
         {
-            MessageBox.Show($"No se pudo descargar el modelo de español.{Environment.NewLine}{Environment.NewLine}{exception.Message}",
+            string language = isEnglish ? "inglés" : "español";
+            MessageBox.Show($"No se pudo descargar el modelo de {language}.{Environment.NewLine}{Environment.NewLine}{exception.Message}",
                 "Error de configuración", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
             DownloadSpanishModelButton.IsEnabled = true;
+            DownloadEnglishModelButton.IsEnabled = true;
             ModelDownloadProgressBar.Visibility = Visibility.Collapsed;
         }
     }
@@ -301,10 +378,19 @@ public partial class MainWindow : Window
 
     private void UpdateModelControls()
     {
-        bool modelInstalled = speechRecognitionService.IsSpanishModelInstalled();
-        DownloadSpanishModelButton.Visibility = modelInstalled ? Visibility.Collapsed : Visibility.Visible;
-        TestMicrophoneButton.IsEnabled = modelInstalled && commandSessionTask is null;
-        StartCommandListeningButton.IsEnabled = modelInstalled && commandSessionTask is null;
+        bool spanishModelInstalled = speechRecognitionService.IsSpanishModelInstalled();
+        bool englishModelInstalled = speechRecognitionService.IsEnglishModelInstalled();
+
+        SpanishModelStatusTextBlock.Text = spanishModelInstalled
+            ? "Modelo español: instalado"
+            : "Modelo español: no instalado";
+        EnglishModelStatusTextBlock.Text = englishModelInstalled
+            ? "English model: installed"
+            : "English model: not installed";
+        DownloadSpanishModelButton.Visibility = spanishModelInstalled ? Visibility.Collapsed : Visibility.Visible;
+        DownloadEnglishModelButton.Visibility = englishModelInstalled ? Visibility.Collapsed : Visibility.Visible;
+        TestMicrophoneButton.IsEnabled = spanishModelInstalled && commandSessionTask is null;
+        StartCommandListeningButton.IsEnabled = spanishModelInstalled && commandSessionTask is null;
     }
 
     private async Task RunVoiceTestAsync(string text, string language)
@@ -346,6 +432,8 @@ public partial class MainWindow : Window
     {
         StartCommandListeningButton.IsEnabled = !isListening && speechRecognitionService.IsSpanishModelInstalled();
         StopCommandListeningButton.IsEnabled = isListening;
+        DownloadSpanishModelButton.IsEnabled = !isListening;
+        DownloadEnglishModelButton.IsEnabled = !isListening;
         ListeningStatusTextBlock.Text = isListening ? "Escucha: activa" : "Escucha: detenida";
         SetTestButtonsEnabled(!isListening);
     }
