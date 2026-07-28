@@ -5,11 +5,12 @@ namespace VoiceInterpreter;
 public sealed class SpeechService
 {
     private readonly AppSettings settings;
-    private readonly SemaphoreSlim speechLock = new(1, 1);
+    private readonly SemaphoreSlim audioLock;
 
-    public SpeechService(AppSettings settings)
+    public SpeechService(AppSettings settings, SemaphoreSlim audioLock)
     {
         this.settings = settings;
+        this.audioLock = audioLock;
     }
 
     public async Task SpeakAsync(string text, string language)
@@ -25,7 +26,7 @@ public sealed class SpeechService
             throw new ArgumentException($"El idioma '{language}' no es compatible. Usa 'es' o 'en'.", nameof(language));
         }
 
-        await speechLock.WaitAsync();
+        await audioLock.WaitAsync();
 
         try
         {
@@ -33,7 +34,7 @@ public sealed class SpeechService
         }
         finally
         {
-            speechLock.Release();
+            audioLock.Release();
         }
     }
 

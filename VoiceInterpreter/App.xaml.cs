@@ -21,12 +21,15 @@ public partial class App : Application
         AppSettings settings = new()
         {
             SpanishVoice = configuration["SpanishVoice"] ?? string.Empty,
-            EnglishVoice = configuration["EnglishVoice"] ?? string.Empty
+            EnglishVoice = configuration["EnglishVoice"] ?? string.Empty,
+            SpanishVoskModelPath = configuration["SpanishVoskModelPath"] ?? "Models/vosk-model-small-es-0.42"
         };
 
         ServiceCollection services = new();
         services.AddSingleton(settings);
+        services.AddSingleton(new SemaphoreSlim(1, 1));
         services.AddSingleton<SpeechService>();
+        services.AddSingleton<SpeechRecognitionService>();
         services.AddSingleton<MainWindow>();
 
         serviceProvider = services.BuildServiceProvider();
