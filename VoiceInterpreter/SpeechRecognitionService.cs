@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Text.Json;
+using System.Threading.Channels;
 using NAudio.Wave;
 using Vosk;
 
@@ -12,6 +13,29 @@ public sealed class SpeechRecognitionService
 {
     private const int SampleRate = 16000;
     private const string SpanishModelUrl = "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip";
+    private static readonly string CommandGrammar = JsonSerializer.Serialize(new[]
+    {
+        "iniciar intérprete",
+        "iniciar interprete",
+        "inicia el intérprete",
+        "inicia el interprete",
+        "inicia intérprete",
+        "inicia interprete",
+        "repetir",
+        "repite",
+        "repetir mensaje",
+        "terminar intérprete",
+        "terminar interprete",
+        "termina el intérprete",
+        "termina el interprete",
+        "finalizar intérprete",
+        "finalizar interprete",
+        "ayuda",
+        "ayúdame",
+        "ayudame",
+        "comandos",
+        "[unk]"
+    });
     private static readonly TimeSpan RecognitionTimeout = TimeSpan.FromSeconds(10);
     private readonly AppSettings settings;
     private readonly SemaphoreSlim audioLock;
@@ -125,16 +149,155 @@ public sealed class SpeechRecognitionService
         }
     }
 
-    private static async Task<string?> RecognizeAsync(string modelPath, CancellationToken cancellationToken)
+    public async Task ListenForCommandsAsync(Func<string, Task> commandHandler, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(commandHandler);
+
+        string modelPath = GetSpanishModelPath();
+        if (!IsSpanishModelInstalled())
+        {
+            throw new DirectoryNotFoundException(
+                $"No se encontró el modelo de español de Vosk en '{modelPath}'.");
+        }
+
+        LogInputDevices();
+        if (WaveIn.DeviceCount == 0)
+        {
+            throw new InvalidOperationException("Windows no detectó ningún micrófono o dispositivo de entrada de audio.");
+        }
+
+        await Task.Run(() => ListenForCommandsCoreAsync(modelPath, commandHandler, cancellationToken), cancellationToken);
+    }
+
+    private async Task ListenForCommandsCoreAsync(string modelPath, Func<string, Task> commandHandler, CancellationToken cancellationToken)
     {
         using Model model = new(modelPath);
-        using VoskRecognizer recognizer = new(model, SampleRate);
-        using WaveInEvent microphone = new()
+        using VoskRecognizer recognizer = new(model, SampleRate, CommandGrammar);
+        using WaveInEvent microphone = CreateMicrophone();
+        Channel<string> recognizedCommands = Channel.CreateUnbounded<string>();
+        TaskCompletionSource recordingStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        EventHandler<WaveInEventArgs> dataAvailable = (_, eventArgs) =>
+        {
+            try
+            {
+                if (recognizer.AcceptWaveform(eventArgs.Buffer, eventArgs.BytesRecorded))
+                {
+                    string? text = ExtractText(recognizer.Result());
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        recognizedCommands.Writer.TryWrite(text);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                recognizedCommands.Writer.TryComplete(exception);
+            }
+        };
+
+        EventHandler<StoppedEventArgs> recordingStoppedHandler = (_, eventArgs) =>
+        {
+            if (eventArgs.Exception is not null)
+            {
+                recognizedCommands.Writer.TryComplete(eventArgs.Exception);
+            }
+
+            recordingStopped.TrySetResult();
+        };
+
+        microphone.DataAvailable += dataAvailable;
+        microphone.RecordingStopped += recordingStoppedHandler;
+        Debug.WriteLine("Inicio de la escucha continua de comandos.");
+
+        try
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                while (recognizedCommands.Reader.TryRead(out _))
+                {
+                }
+
+                recognizer.Reset();
+                await audioLock.WaitAsync(cancellationToken);
+                bool ownsAudioLock = true;
+                bool recordingStarted = false;
+
+                try
+                {
+                    recordingStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    microphone.StartRecording();
+                    recordingStarted = true;
+                    Debug.WriteLine("Micrófono reanudado.");
+
+                    string recognizedText = await recognizedCommands.Reader.ReadAsync(cancellationToken);
+                    Debug.WriteLine($"Micrófono pausado. Texto reconocido: {recognizedText}");
+                    await StopMicrophoneAsync(microphone, recordingStopped);
+                    recordingStarted = false;
+                    audioLock.Release();
+                    ownsAudioLock = false;
+
+                    await commandHandler(recognizedText);
+                    await Task.Delay(350, cancellationToken);
+                }
+                finally
+                {
+                    if (recordingStarted)
+                    {
+                        await StopMicrophoneAsync(microphone, recordingStopped);
+                    }
+
+                    if (ownsAudioLock)
+                    {
+                        audioLock.Release();
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Debug.WriteLine("Escucha continua cancelada.");
+            throw;
+        }
+        finally
+        {
+            microphone.DataAvailable -= dataAvailable;
+            microphone.RecordingStopped -= recordingStoppedHandler;
+            recognizedCommands.Writer.TryComplete();
+            Debug.WriteLine("Fin de la escucha continua de comandos.");
+        }
+    }
+
+    private static WaveInEvent CreateMicrophone()
+    {
+        return new WaveInEvent
         {
             DeviceNumber = 0,
             WaveFormat = new WaveFormat(SampleRate, 16, 1),
             BufferMilliseconds = 100
         };
+    }
+
+    private static async Task StopMicrophoneAsync(WaveInEvent microphone, TaskCompletionSource recordingStopped)
+    {
+        microphone.StopRecording();
+
+        try
+        {
+            await recordingStopped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        catch (TimeoutException)
+        {
+            Debug.WriteLine("El micrófono no confirmó su detención dentro del tiempo esperado.");
+        }
+    }
+
+    private static async Task<string?> RecognizeAsync(string modelPath, CancellationToken cancellationToken)
+    {
+        using Model model = new(modelPath);
+        using VoskRecognizer recognizer = new(model, SampleRate);
+        using WaveInEvent microphone = CreateMicrophone();
         using CancellationTokenSource timeout = new(RecognitionTimeout);
         using CancellationTokenSource linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
 

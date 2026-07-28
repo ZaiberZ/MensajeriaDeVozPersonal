@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:VoiceInterpreter"
         mc:Ignorable="d"
-        Title="VoiceInterpreter" Height="450" Width="800">
+        Title="VoiceInterpreter" Height="720" Width="800">
     <Grid>
         <StackPanel HorizontalAlignment="Center"
                     VerticalAlignment="Center">
@@ -33,6 +33,35 @@
                        Margin="0,0,0,16"
                        TextAlignment="Center"
                        TextWrapping="Wrap" />
+            <TextBlock Margin="0,0,0,8"
+                       FontWeight="SemiBold"
+                       Text="Pruebas de control por voz"
+                       TextAlignment="Center" />
+            <Button x:Name="StartCommandListeningButton"
+                    Width="220"
+                    Height="40"
+                    Margin="0,0,0,8"
+                    Click="StartCommandListening_Click"
+                    Content="Iniciar escucha de comandos" />
+            <Button x:Name="StopCommandListeningButton"
+                    Width="220"
+                    Height="40"
+                    Margin="0,0,0,8"
+                    Click="StopCommandListening_Click"
+                    Content="Detener escucha"
+                    IsEnabled="False" />
+            <TextBlock x:Name="ListeningStatusTextBlock"
+                       Margin="0,0,0,4"
+                       Text="Escucha: detenida"
+                       TextAlignment="Center" />
+            <TextBlock x:Name="LastCommandTextBlock"
+                       Margin="0,0,0,4"
+                       Text="Último comando: ninguno"
+                       TextAlignment="Center" />
+            <TextBlock x:Name="InterpreterStateTextBlock"
+                       Margin="0,0,0,16"
+                       Text="Estado del intérprete: Inactive"
+                       TextAlignment="Center" />
             <TextBlock Margin="0,0,0,8"
                        FontWeight="SemiBold"
                        Text="Herramientas de configuración y soporte"

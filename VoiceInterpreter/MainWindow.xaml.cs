@@ -1,4 +1,7 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using System.Windows;
 
 namespace VoiceInterpreter;
@@ -7,6 +10,10 @@ public partial class MainWindow : Window
 {
     private readonly SpeechService speechService;
     private readonly SpeechRecognitionService speechRecognitionService;
+    private CancellationTokenSource? commandListeningCancellation;
+    private Task? commandSessionTask;
+    private InterpreterState interpreterState = InterpreterState.Inactive;
+    private bool allowClose;
 
     public MainWindow(SpeechService speechService, SpeechRecognitionService speechRecognitionService)
     {
@@ -20,6 +27,33 @@ public partial class MainWindow : Window
     {
         base.OnActivated(e);
         UpdateVoiceInstallationButtons();
+    }
+
+    protected override async void OnClosing(CancelEventArgs e)
+    {
+        if (allowClose || commandSessionTask is null)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        e.Cancel = true;
+        commandListeningCancellation?.Cancel();
+
+        try
+        {
+            await commandSessionTask;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Error al cerrar la sesión de escucha: {exception}");
+        }
+
+        allowClose = true;
+        Close();
     }
 
     private async void TestSpanish_Click(object sender, RoutedEventArgs e)
@@ -55,22 +89,131 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show($"No se pudo completar la prueba del micrófono.{Environment.NewLine}{Environment.NewLine}{exception.Message}",
-                "Error de reconocimiento local", MessageBoxButton.OK, MessageBoxImage.Error);
-
-            try
-            {
-                await speechService.SpeakAsync("Ocurrió un problema con el micrófono.", "es");
-            }
-            catch (Exception speechException)
-            {
-                Debug.WriteLine($"No se pudo anunciar el error: {speechException.Message}");
-            }
+            await ReportRecognitionErrorAsync(exception, "No se pudo completar la prueba del micrófono.");
         }
         finally
         {
             SetTestButtonsEnabled(true);
         }
+    }
+
+    private async void StartCommandListening_Click(object sender, RoutedEventArgs e)
+    {
+        if (!speechRecognitionService.IsSpanishModelInstalled())
+        {
+            MessageBox.Show($"Falta el modelo de español en:{Environment.NewLine}{speechRecognitionService.GetSpanishModelPath()}",
+                "Modelo no instalado", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        commandListeningCancellation = new CancellationTokenSource();
+        SetListeningControls(isListening: true);
+        commandSessionTask = RunCommandSessionAsync(commandListeningCancellation.Token);
+
+        try
+        {
+            await commandSessionTask;
+        }
+        catch (OperationCanceledException) when (commandListeningCancellation.IsCancellationRequested)
+        {
+            Debug.WriteLine("La sesión de control por voz fue cancelada.");
+        }
+        catch (Exception exception)
+        {
+            await ReportRecognitionErrorAsync(exception, "Se detuvo la escucha de comandos.");
+        }
+        finally
+        {
+            commandListeningCancellation.Dispose();
+            commandListeningCancellation = null;
+            commandSessionTask = null;
+            SetListeningControls(isListening: false);
+        }
+    }
+
+    private async void StopCommandListening_Click(object sender, RoutedEventArgs e)
+    {
+        CancellationTokenSource? cancellation = commandListeningCancellation;
+        Task? session = commandSessionTask;
+        if (cancellation is null)
+        {
+            return;
+        }
+
+        StopCommandListeningButton.IsEnabled = false;
+        cancellation.Cancel();
+
+        try
+        {
+            if (session is not null)
+            {
+                await session;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        await speechService.SpeakAsync("Control por voz desactivado.", "es");
+    }
+
+    private async Task RunCommandSessionAsync(CancellationToken cancellationToken)
+    {
+        Debug.WriteLine("Iniciando sesión de control por voz.");
+        await speechService.SpeakAsync(
+            "Control por voz activado. Puede decir ayuda para conocer los comandos.", "es", cancellationToken);
+        await speechRecognitionService.ListenForCommandsAsync(HandleCommandAsync, cancellationToken);
+    }
+
+    private async Task HandleCommandAsync(string recognizedText)
+    {
+        string command = NormalizeCommand(recognizedText);
+        await Dispatcher.InvokeAsync(() => LastCommandTextBlock.Text = $"Último comando: {recognizedText}");
+        Debug.WriteLine($"Comando reconocido: {recognizedText} (normalizado: {command})");
+
+        CancellationToken cancellationToken = commandListeningCancellation?.Token ?? CancellationToken.None;
+
+        switch (command)
+        {
+            case "iniciar interprete":
+            case "inicia el interprete":
+            case "inicia interprete":
+                await SetInterpreterStateAsync(InterpreterState.Ready);
+                await speechService.SpeakAsync(
+                    "El intérprete está listo. La traducción todavía no está disponible.", "es", cancellationToken);
+                break;
+
+            case "repetir":
+            case "repite":
+            case "repetir mensaje":
+                await speechService.RepeatLastAsync("es", cancellationToken);
+                break;
+
+            case "terminar interprete":
+            case "termina el interprete":
+            case "finalizar interprete":
+                await SetInterpreterStateAsync(InterpreterState.Inactive);
+                await speechService.SpeakAsync("Intérprete finalizado.", "es", cancellationToken);
+                break;
+
+            case "ayuda":
+            case "ayudame":
+            case "comandos":
+                await speechService.SpeakAsync(
+                    "Puede decir iniciar intérprete, repetir o terminar intérprete.", "es", cancellationToken);
+                break;
+
+            default:
+                Debug.WriteLine($"Texto reconocido no asociado a un comando: {recognizedText}");
+                break;
+        }
+    }
+
+    private async Task SetInterpreterStateAsync(InterpreterState state)
+    {
+        interpreterState = state;
+        await Dispatcher.InvokeAsync(() => InterpreterStateTextBlock.Text = $"Estado del intérprete: {interpreterState}");
+        Debug.WriteLine($"Estado del intérprete: {interpreterState}");
     }
 
     private async void DownloadSpanishModel_Click(object sender, RoutedEventArgs e)
@@ -124,7 +267,8 @@ public partial class MainWindow : Window
     {
         bool modelInstalled = speechRecognitionService.IsSpanishModelInstalled();
         DownloadSpanishModelButton.Visibility = modelInstalled ? Visibility.Collapsed : Visibility.Visible;
-        TestMicrophoneButton.IsEnabled = modelInstalled;
+        TestMicrophoneButton.IsEnabled = modelInstalled && commandSessionTask is null;
+        StartCommandListeningButton.IsEnabled = modelInstalled && commandSessionTask is null;
     }
 
     private async Task RunVoiceTestAsync(string text, string language)
@@ -146,10 +290,51 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task ReportRecognitionErrorAsync(Exception exception, string title)
+    {
+        Debug.WriteLine($"Error de reconocimiento: {exception}");
+        MessageBox.Show($"{title}{Environment.NewLine}{Environment.NewLine}{exception.Message}",
+            "Error de reconocimiento local", MessageBoxButton.OK, MessageBoxImage.Error);
+
+        try
+        {
+            await speechService.SpeakAsync("Ocurrió un problema con el reconocimiento de voz.", "es");
+        }
+        catch (Exception speechException)
+        {
+            Debug.WriteLine($"No se pudo anunciar el error: {speechException.Message}");
+        }
+    }
+
+    private void SetListeningControls(bool isListening)
+    {
+        StartCommandListeningButton.IsEnabled = !isListening && speechRecognitionService.IsSpanishModelInstalled();
+        StopCommandListeningButton.IsEnabled = isListening;
+        ListeningStatusTextBlock.Text = isListening ? "Escucha: activa" : "Escucha: detenida";
+        SetTestButtonsEnabled(!isListening);
+    }
+
     private void SetTestButtonsEnabled(bool isEnabled)
     {
         TestSpanishButton.IsEnabled = isEnabled;
         TestEnglishButton.IsEnabled = isEnabled;
         TestMicrophoneButton.IsEnabled = isEnabled && speechRecognitionService.IsSpanishModelInstalled();
+    }
+
+    private static string NormalizeCommand(string text)
+    {
+        string decomposed = text.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        StringBuilder withoutAccents = new();
+
+        foreach (char character in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark)
+            {
+                withoutAccents.Append(character);
+            }
+        }
+
+        return string.Join(' ', withoutAccents.ToString().Split(
+            (char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 }

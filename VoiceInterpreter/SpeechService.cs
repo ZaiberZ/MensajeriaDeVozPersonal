@@ -13,29 +13,23 @@ public sealed class SpeechService
         this.audioLock = audioLock;
     }
 
-    public async Task SpeakAsync(string text, string language)
+    public string? LastSpokenText { get; private set; }
+
+    public Task SpeakAsync(string text, string language, CancellationToken cancellationToken = default)
     {
+        return SpeakAsync(text, language, rememberText: true, cancellationToken);
+    }
+
+    public async Task RepeatLastAsync(string language, CancellationToken cancellationToken = default)
+    {
+        string? text = LastSpokenText;
         if (string.IsNullOrWhiteSpace(text))
         {
-            throw new ArgumentException("El texto que se reproducirá no puede estar vacío.", nameof(text));
+            await SpeakAsync("No hay ningún mensaje para repetir.", language, rememberText: false, cancellationToken);
+            return;
         }
 
-        string normalizedLanguage = language.Trim().ToLowerInvariant();
-        if (normalizedLanguage is not ("es" or "en"))
-        {
-            throw new ArgumentException($"El idioma '{language}' no es compatible. Usa 'es' o 'en'.", nameof(language));
-        }
-
-        await audioLock.WaitAsync();
-
-        try
-        {
-            await Task.Run(() => Speak(text, normalizedLanguage));
-        }
-        finally
-        {
-            audioLock.Release();
-        }
+        await SpeakAsync(text, language, rememberText: true, cancellationToken);
     }
 
     public IReadOnlyList<string> GetInstalledVoices()
@@ -52,6 +46,36 @@ public sealed class SpeechService
         using SpeechSynthesizer synthesizer = new();
         return synthesizer.GetInstalledVoices().Any(
             voice => voice.Enabled && voice.VoiceInfo.Culture.Name.StartsWith(language, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task SpeakAsync(string text, string language, bool rememberText, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("El texto que se reproducirá no puede estar vacío.", nameof(text));
+        }
+
+        string normalizedLanguage = language.Trim().ToLowerInvariant();
+        if (normalizedLanguage is not ("es" or "en"))
+        {
+            throw new ArgumentException($"El idioma '{language}' no es compatible. Usa 'es' o 'en'.", nameof(language));
+        }
+
+        await audioLock.WaitAsync(cancellationToken);
+
+        try
+        {
+            await Task.Run(() => Speak(text, normalizedLanguage), cancellationToken);
+
+            if (rememberText)
+            {
+                LastSpokenText = text;
+            }
+        }
+        finally
+        {
+            audioLock.Release();
+        }
     }
 
     private void Speak(string text, string language)
