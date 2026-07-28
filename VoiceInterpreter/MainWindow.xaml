@@ -7,9 +7,31 @@
         mc:Ignorable="d"
         Title="VoiceInterpreter" Height="450" Width="800">
     <Grid>
-        <Button Width="140"
-                Height="40"
-                Click="TestSpeech_Click"
-                Content="Probar Speech" />
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+            <Button x:Name="TestSpanishButton"
+                    Width="140"
+                    Height="40"
+                    Margin="0,0,0,12"
+                    Click="TestSpanish_Click"
+                    Content="Probar español" />
+            <Button x:Name="TestEnglishButton"
+                    Width="140"
+                    Height="40"
+                    Margin="0,0,0,12"
+                    Click="TestEnglish_Click"
+                    Content="Test English" />
+            <Button x:Name="InstallSpanishVoiceButton"
+                    Width="180"
+                    Height="40"
+                    Margin="0,0,0,12"
+                    Click="OpenVoiceSettings_Click"
+                    Content="Instalar voz en español" />
+            <Button x:Name="InstallEnglishVoiceButton"
+                    Width="180"
+                    Height="40"
+                    Click="OpenVoiceSettings_Click"
+                    Content="Install English voice" />
+        </StackPanel>
     </Grid>
 </Window>

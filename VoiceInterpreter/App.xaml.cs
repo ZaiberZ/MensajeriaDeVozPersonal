@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,8 +20,8 @@ public partial class App : Application
 
         AppSettings settings = new()
         {
-            SpeechKey = configuration["Speech:SpeechKey"] ?? string.Empty,
-            SpeechRegion = configuration["Speech:SpeechRegion"] ?? string.Empty
+            SpanishVoice = configuration["SpanishVoice"] ?? string.Empty,
+            EnglishVoice = configuration["EnglishVoice"] ?? string.Empty
         };
 
         ServiceCollection services = new();
@@ -29,6 +30,14 @@ public partial class App : Application
         services.AddSingleton<MainWindow>();
 
         serviceProvider = services.BuildServiceProvider();
+        SpeechService speechService = serviceProvider.GetRequiredService<SpeechService>();
+
+        Debug.WriteLine("Voces instaladas:");
+        foreach (string voice in speechService.GetInstalledVoices())
+        {
+            Debug.WriteLine($"- {voice}");
+        }
+
         serviceProvider.GetRequiredService<MainWindow>().Show();
     }
 

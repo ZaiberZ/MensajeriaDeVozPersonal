@@ -1,28 +1,92 @@
-using Microsoft.CognitiveServices.Speech;
+using System.Speech.Synthesis;
 
 namespace VoiceInterpreter;
 
 public sealed class SpeechService
 {
     private readonly AppSettings settings;
+    private readonly SemaphoreSlim speechLock = new(1, 1);
 
     public SpeechService(AppSettings settings)
     {
         this.settings = settings;
     }
 
-    public SpeechConfig CreateSpeechConfig()
+    public async Task SpeakAsync(string text, string language)
     {
-        if (string.IsNullOrWhiteSpace(settings.SpeechKey))
+        if (string.IsNullOrWhiteSpace(text))
         {
-            throw new InvalidOperationException("SpeechKey no está configurada.");
+            throw new ArgumentException("El texto que se reproducirá no puede estar vacío.", nameof(text));
         }
 
-        if (string.IsNullOrWhiteSpace(settings.SpeechRegion))
+        string normalizedLanguage = language.Trim().ToLowerInvariant();
+        if (normalizedLanguage is not ("es" or "en"))
         {
-            throw new InvalidOperationException("SpeechRegion no está configurada.");
+            throw new ArgumentException($"El idioma '{language}' no es compatible. Usa 'es' o 'en'.", nameof(language));
         }
 
-        return SpeechConfig.FromSubscription(settings.SpeechKey, settings.SpeechRegion);
+        await speechLock.WaitAsync();
+
+        try
+        {
+            await Task.Run(() => Speak(text, normalizedLanguage));
+        }
+        finally
+        {
+            speechLock.Release();
+        }
+    }
+
+    public IReadOnlyList<string> GetInstalledVoices()
+    {
+        using SpeechSynthesizer synthesizer = new();
+        return synthesizer.GetInstalledVoices()
+            .Where(voice => voice.Enabled)
+            .Select(voice => $"{voice.VoiceInfo.Name} ({voice.VoiceInfo.Culture.Name})")
+            .ToList();
+    }
+
+    public bool HasInstalledVoice(string language)
+    {
+        using SpeechSynthesizer synthesizer = new();
+        return synthesizer.GetInstalledVoices().Any(
+            voice => voice.Enabled && voice.VoiceInfo.Culture.Name.StartsWith(language, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void Speak(string text, string language)
+    {
+        using SpeechSynthesizer synthesizer = new();
+        InstalledVoice voice = FindVoice(synthesizer, language);
+
+        synthesizer.SelectVoice(voice.VoiceInfo.Name);
+        synthesizer.SetOutputToDefaultAudioDevice();
+        synthesizer.Speak(text);
+    }
+
+    private InstalledVoice FindVoice(SpeechSynthesizer synthesizer, string language)
+    {
+        string configuredVoice = language == "es" ? settings.SpanishVoice : settings.EnglishVoice;
+        IReadOnlyList<InstalledVoice> installedVoices = synthesizer.GetInstalledVoices()
+            .Where(voice => voice.Enabled)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(configuredVoice))
+        {
+            InstalledVoice? exactVoice = installedVoices.FirstOrDefault(
+                voice => string.Equals(voice.VoiceInfo.Name, configuredVoice, StringComparison.OrdinalIgnoreCase));
+
+            return exactVoice ?? throw new InvalidOperationException(
+                $"La voz configurada '{configuredVoice}' no está instalada o no está habilitada en Windows.");
+        }
+
+        return installedVoices.FirstOrDefault(
+            voice => voice.VoiceInfo.Culture.Name.StartsWith(language, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"No hay una voz de {GetLanguageName(language)} instalada y habilitada en Windows.");
+    }
+
+    private static string GetLanguageName(string language)
+    {
+        return language == "es" ? "español" : "inglés";
     }
 }
