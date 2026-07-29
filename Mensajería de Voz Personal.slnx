@@ -13,6 +13,5 @@
   </Folder>
   <Project Path="AlexaSkillWhatsApp/AlexaSkillWhatsApp.csproj" />
   <Project Path="Shared/Shared.csproj" Id="d00df311-1365-4e7b-bd8d-0bc72476b644" />
-  <Project Path="VoiceInterpreter/VoiceInterpreter.csproj" Id="d28ecfc3-172f-418a-a78f-cf2c9754580e" />
   <Project Path="VoiceMessaging.Worker/VoiceMessaging.Worker.csproj" Id="6e932333-b7d2-49d8-b114-8bbacf1b55c3" />
 </Solution>
