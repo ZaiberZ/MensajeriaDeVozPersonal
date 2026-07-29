@@ -18,10 +18,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Shared\Shared.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Content Include="Models\**\*" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Translation\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Update="appsettings.json">
