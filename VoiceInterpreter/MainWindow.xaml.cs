@@ -10,16 +10,25 @@ public partial class MainWindow : Window
 {
     private readonly SpeechService speechService;
     private readonly SpeechRecognitionService speechRecognitionService;
+    private readonly TranslationService translationService;
     private CancellationTokenSource? commandListeningCancellation;
+    private CancellationTokenSource? translationSetupCancellation;
     private Task? commandSessionTask;
+    private Task<TranslationStatus>? translationSetupTask;
     private volatile InterpreterState interpreterState = InterpreterState.Inactive;
+    private string? LastTranslatedText { get; set; }
+    private string? LastTranslationLanguage { get; set; }
     private bool allowClose;
 
-    public MainWindow(SpeechService speechService, SpeechRecognitionService speechRecognitionService)
+    public MainWindow(
+        SpeechService speechService,
+        SpeechRecognitionService speechRecognitionService,
+        TranslationService translationService)
     {
         InitializeComponent();
         this.speechService = speechService;
         this.speechRecognitionService = speechRecognitionService;
+        this.translationService = translationService;
         UpdateVoiceInstallationButtons();
     }
 
@@ -31,7 +40,7 @@ public partial class MainWindow : Window
 
     protected override async void OnClosing(CancelEventArgs e)
     {
-        if (allowClose || commandSessionTask is null)
+        if (allowClose || (commandSessionTask is null && translationSetupTask is null))
         {
             base.OnClosing(e);
             return;
@@ -39,10 +48,13 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
         commandListeningCancellation?.Cancel();
+        translationSetupCancellation?.Cancel();
 
         try
         {
-            await commandSessionTask;
+            await Task.WhenAll(
+                commandSessionTask ?? Task.CompletedTask,
+                translationSetupTask ?? Task.CompletedTask);
         }
         catch (OperationCanceledException)
         {
@@ -200,6 +212,15 @@ public partial class MainWindow : Window
                     break;
                 }
 
+                TranslationStatus status = await translationService.CheckInstallationAsync(cancellationToken);
+                await Dispatcher.InvokeAsync(() => UpdateTranslationStatus(status));
+                if (!status.IsReady)
+                {
+                    await speechService.SpeakAsync(
+                        "La traducción local todavía no está configurada.", "es", cancellationToken);
+                    break;
+                }
+
                 await SetInterpreterStateAsync(InterpreterState.ListeningSpanish);
                 await speechService.SpeakAsync("Puede comenzar a hablar en español.", "es", cancellationToken);
                 break;
@@ -207,7 +228,7 @@ public partial class MainWindow : Window
             case "repetir":
             case "repite":
             case "repetir mensaje":
-                await speechService.RepeatLastAsync("es", cancellationToken);
+                await RepeatLastTranslationAsync("es", cancellationToken);
                 break;
 
             case "terminar interprete":
@@ -246,15 +267,17 @@ public partial class MainWindow : Window
             case "repetir":
             case "repite":
             case "repetir mensaje":
-                await speechService.RepeatLastAsync("es", cancellationToken);
+                await RepeatLastTranslationAsync("es", cancellationToken);
                 break;
 
             default:
-                await Dispatcher.InvokeAsync(() => RecognizedTextBlock.Text = recognizedText);
                 Debug.WriteLine($"Frase reconocida en español: {recognizedText}");
-                await speechService.SpeakAsync($"Escuché en español: {recognizedText}", "es", cancellationToken);
-                await SetInterpreterStateAsync(InterpreterState.ListeningEnglish);
-                await speechService.SpeakAsync("You can speak in English.", "en", cancellationToken);
+                await TranslateConversationTextAsync(
+                    recognizedText,
+                    sourceLanguage: "es",
+                    targetLanguage: "en",
+                    nextState: InterpreterState.ListeningEnglish,
+                    cancellationToken);
                 break;
         }
     }
@@ -279,17 +302,81 @@ public partial class MainWindow : Window
             case "repetir mensaje":
             case "repeat":
             case "repeat that":
-                await speechService.RepeatLastAsync("en", cancellationToken);
+                await RepeatLastTranslationAsync("en", cancellationToken);
                 break;
 
             default:
-                await Dispatcher.InvokeAsync(() => RecognizedTextBlock.Text = recognizedText);
                 Debug.WriteLine($"Frase reconocida en inglés: {recognizedText}");
-                await speechService.SpeakAsync($"I heard in English: {recognizedText}", "en", cancellationToken);
-                await SetInterpreterStateAsync(InterpreterState.ListeningSpanish);
-                await speechService.SpeakAsync("Puede hablar en español.", "es", cancellationToken);
+                await TranslateConversationTextAsync(
+                    recognizedText,
+                    sourceLanguage: "en",
+                    targetLanguage: "es",
+                    nextState: InterpreterState.ListeningSpanish,
+                    cancellationToken);
                 break;
         }
+    }
+
+    private async Task TranslateConversationTextAsync(
+        string originalText,
+        string sourceLanguage,
+        string targetLanguage,
+        InterpreterState nextState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            string translatedText = await translationService.TranslateAsync(
+                originalText, sourceLanguage, targetLanguage, cancellationToken);
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                RecognizedTextBlock.Text = $"Original: {originalText}";
+                TranslatedTextBlock.Text = $"Traducción: {translatedText}";
+            });
+            Debug.WriteLine($"Traducción {sourceLanguage}->{targetLanguage}: {originalText} -> {translatedText}");
+
+            await speechService.SpeakAsync(translatedText, targetLanguage, cancellationToken);
+            LastTranslatedText = translatedText;
+            LastTranslationLanguage = targetLanguage;
+            await SetInterpreterStateAsync(nextState);
+            System.Media.SystemSounds.Beep.Play();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Error al traducir {sourceLanguage}->{targetLanguage}: {exception}");
+            await Dispatcher.InvokeAsync(() =>
+            {
+                MessageBox.Show(
+                    $"No se pudo traducir la frase.{Environment.NewLine}{Environment.NewLine}{exception.Message}",
+                    "Error de traducción local",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            });
+
+            string message = sourceLanguage == "es"
+                ? "No pude traducir la frase. Por favor, repítala."
+                : "I could not translate the sentence. Please repeat it.";
+            await speechService.SpeakAsync(message, sourceLanguage, cancellationToken);
+        }
+    }
+
+    private async Task RepeatLastTranslationAsync(string fallbackLanguage, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(LastTranslatedText) || string.IsNullOrWhiteSpace(LastTranslationLanguage))
+        {
+            string message = fallbackLanguage == "es"
+                ? "No hay ninguna traducción para repetir."
+                : "There is no translation to repeat.";
+            await speechService.SpeakAsync(message, fallbackLanguage, cancellationToken);
+            return;
+        }
+
+        await speechService.SpeakAsync(LastTranslatedText, LastTranslationLanguage, cancellationToken);
     }
 
     private async Task SetInterpreterStateAsync(InterpreterState state)
@@ -306,6 +393,96 @@ public partial class MainWindow : Window
             };
         });
         Debug.WriteLine($"Estado del intérprete: {interpreterState}");
+    }
+
+    private async void CheckTranslation_Click(object sender, RoutedEventArgs e)
+    {
+        await CheckTranslationAsync();
+    }
+
+    private async Task<TranslationStatus> CheckTranslationAsync()
+    {
+        SetTranslationConfigurationControls(isWorking: true);
+
+        try
+        {
+            TranslationStatus status = await translationService.CheckInstallationAsync();
+            UpdateTranslationStatus(status);
+            Debug.WriteLine(
+                $"Traducción local: Python={status.PythonAvailable}, Argos={status.ArgosTranslateAvailable}, " +
+                $"es->en={status.SpanishToEnglishModelAvailable}, en->es={status.EnglishToSpanishModelAvailable}, " +
+                $"Error={status.ErrorMessage}");
+            return status;
+        }
+        finally
+        {
+            SetTranslationConfigurationControls(isWorking: false);
+        }
+    }
+
+    private async void InstallTranslationModels_Click(object sender, RoutedEventArgs e)
+    {
+        translationSetupCancellation = new CancellationTokenSource();
+        SetTranslationConfigurationControls(isWorking: true);
+        Progress<string> progress = new(message =>
+        {
+            TranslationSetupMessageTextBlock.Text = message;
+            Debug.WriteLine($"Configuración de traducción: {message}");
+        });
+
+        try
+        {
+            translationSetupTask = translationService.ConfigureAutomaticallyAsync(
+                progress, translationSetupCancellation.Token);
+            TranslationStatus status = await translationSetupTask;
+            UpdateTranslationStatus(status);
+        }
+        catch (OperationCanceledException)
+        {
+            TranslationSetupMessageTextBlock.Text = "Configuración cancelada.";
+            Debug.WriteLine("La configuración automática de traducción fue cancelada.");
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Error instalando modelos de Argos Translate: {exception}");
+            MessageBox.Show(
+                $"No se pudieron instalar los modelos de traducción.{Environment.NewLine}{Environment.NewLine}{exception.Message}",
+                "Error de configuración",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            translationSetupCancellation.Dispose();
+            translationSetupCancellation = null;
+            translationSetupTask = null;
+            SetTranslationConfigurationControls(isWorking: false);
+        }
+    }
+
+    private void UpdateTranslationStatus(TranslationStatus status)
+    {
+        PythonStatusTextBlock.Text = $"Python: {GetAvailabilityText(status.PythonAvailable)}";
+        ArgosStatusTextBlock.Text = $"Argos Translate: {GetAvailabilityText(status.ArgosTranslateAvailable)}";
+        SpanishEnglishTranslationStatusTextBlock.Text =
+            $"Modelo español → inglés: {GetAvailabilityText(status.SpanishToEnglishModelAvailable)}";
+        EnglishSpanishTranslationStatusTextBlock.Text =
+            $"Modelo inglés → español: {GetAvailabilityText(status.EnglishToSpanishModelAvailable)}";
+        InstallTranslationModelsButton.Visibility = status.IsReady
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void SetTranslationConfigurationControls(bool isWorking)
+    {
+        CheckTranslationButton.IsEnabled = !isWorking && commandSessionTask is null;
+        InstallTranslationModelsButton.IsEnabled = !isWorking && commandSessionTask is null;
+        TranslationActivityProgressBar.Visibility = isWorking ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static string GetAvailabilityText(bool available)
+    {
+        return available ? "disponible" : "no disponible";
     }
 
     private async void DownloadSpanishModel_Click(object sender, RoutedEventArgs e)
@@ -434,6 +611,8 @@ public partial class MainWindow : Window
         StopCommandListeningButton.IsEnabled = isListening;
         DownloadSpanishModelButton.IsEnabled = !isListening;
         DownloadEnglishModelButton.IsEnabled = !isListening;
+        CheckTranslationButton.IsEnabled = !isListening;
+        InstallTranslationModelsButton.IsEnabled = !isListening;
         ListeningStatusTextBlock.Text = isListening ? "Escucha: activa" : "Escucha: detenida";
         SetTestButtonsEnabled(!isListening);
     }

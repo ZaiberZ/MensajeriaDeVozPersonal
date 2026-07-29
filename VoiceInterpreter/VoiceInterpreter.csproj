@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <Content Include="Models\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Translation\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
