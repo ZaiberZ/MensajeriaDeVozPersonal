@@ -66,7 +66,6 @@
             "responder {respuesta}",
             "contestar {respuesta}",
             "decir {respuesta}",
-            "escribir {respuesta}",
             "quiero responder {respuesta}"
           ]
         },
@@ -82,7 +81,6 @@
             "mi mensaje es {respuesta}",
             "el mensaje es {respuesta}",
             "quiero decir {respuesta}",
-            "escribe {respuesta}",
             "agrega al mensaje {respuesta}"
           ]
         },
@@ -110,6 +108,10 @@
             "mándale mensaje a {ContactName}",
             "mándale un mensaje a {ContactName}",
             "envia mensaje a {ContactName}",
+            "envia un mensaje a {ContactName}",
+            "enviar mensaje a {ContactName}",
+            "enviar un mensaje a {ContactName}",
+            "envía mensaje a {ContactName}",
             "envía un mensaje a {ContactName}",
             "quiero escribir a {ContactName}"
           ]
@@ -192,6 +194,7 @@
           "name": "AgregarMasIntent",
           "slots": [],
           "samples": [
+            "agregar",
             "agregar algo más",
             "agrega algo más",
             "quiero agregar algo más",

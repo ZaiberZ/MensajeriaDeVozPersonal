@@ -63,7 +63,7 @@ public class AlexaRequestRouter
             return AlexaResponseFactory.ElicitSlot("No pude entender la respuesta. Dímela nuevamente.", "ResponderMensajeIntent", "respuesta", state);
 
         if (state.WaitingForReplyConfirmation && intentName is not "ConfirmarIntent" and not "AMAZON.YesIntent" and not "AMAZON.NoIntent" and not "AgregarMasIntent" and not "DictadoRespuestaIntent" and not "CancelarRespuestaIntent" and not "AMAZON.StopIntent" and not "AMAZON.CancelIntent")
-            return AlexaResponseFactory.Speak("Di sí para enviar el mensaje, agrega al mensaje para continuar, o no para cancelarlo.", state);
+            return AlexaResponseFactory.Speak("Puedes decir agregar algo más o enviar el mensaje.", state);
 
         return intentName switch
         {
@@ -181,9 +181,32 @@ public class AlexaRequestRouter
 
             if (normalizedText is "mensaje" or "mensajes" or "un mensaje")
                 return await BeginContactMessage(request);
+
+            if (TryExtractNewMessageContact(text, out var contactName))
+                return await BeginContactMessage(contactName);
         }
 
         return Reply(request);
+    }
+
+    private static bool TryExtractNewMessageContact(string text, out string contactName)
+    {
+        contactName = "";
+        var normalizedText = text.Trim();
+        var prefixes = new[]
+        {
+            "mensaje a ", "mensajes a ", "un mensaje a ",
+            "envia mensaje a ", "envía mensaje a ", "enviar mensaje a ",
+            "envia un mensaje a ", "envía un mensaje a ", "enviar un mensaje a ",
+            "escribe mensaje a ", "escribir mensaje a "
+        };
+        var prefix = prefixes.FirstOrDefault(value => normalizedText.StartsWith(value, StringComparison.OrdinalIgnoreCase));
+
+        if (prefix == null)
+            return false;
+
+        contactName = normalizedText[prefix.Length..].Trim();
+        return !string.IsNullOrWhiteSpace(contactName);
     }
 
     private async Task<string> BeginContactMessage(AlexaRequest request)
@@ -191,6 +214,11 @@ public class AlexaRequestRouter
         if (!TryGetSlotValue(request, "ContactName", out var contactName))
             return AlexaResponseFactory.ElicitSlot("¿A qué contacto quieres escribirle?", "WriteContactMessageIntent", "ContactName", new ConversationState());
 
+        return await BeginContactMessage(contactName);
+    }
+
+    private async Task<string> BeginContactMessage(string contactName)
+    {
         var contacts = await _conversation.GetFrequentContactsAsync(_user.Phone);
         var contact = FindExactContact(contacts, contactName);
 
@@ -381,10 +409,10 @@ public class AlexaRequestRouter
         if (!string.IsNullOrWhiteSpace(state.SelectedContactName))
         {
             state.PendingText = state.ReplyText;
-            return AlexaResponseFactory.Speak($"El mensaje para {state.SelectedContactName} ahora dice: {state.PendingText}. Puedes decir agregar algo más, enviar, o no para terminar de escribir.", state);
+            return AlexaResponseFactory.Speak($"El mensaje para {state.SelectedContactName} ahora dice: {state.PendingText}. Puedes decir agregar algo más o enviar.", state);
         }
 
-        return AlexaResponseFactory.Speak($"El mensaje ahora dice: {state.ReplyText}. Puedes decir agregar algo más, enviar, o no para terminar de escribir.", state);
+        return AlexaResponseFactory.Speak($"El mensaje ahora dice: {state.ReplyText}. Puedes decir agregar algo más o enviar.", state);
     }
 
     private static string AddMoreToMessage(ConversationState state)
@@ -412,7 +440,7 @@ public class AlexaRequestRouter
         state.WaitingForReplyConfirmation = true;
         state.WaitingForFinalSendConfirmation = false;
 
-        return AlexaResponseFactory.Speak($"Quieres enviar a {state.SelectedContactName}: {state.PendingText}. Puedes decir agregar algo más, enviar, o no para terminar de escribir.", state);
+        return AlexaResponseFactory.Speak($"Quieres enviar a {state.SelectedContactName}: {state.PendingText}. Puedes decir agregar algo más o enviar.", state);
     }
 
     private static string SaveReply(ConversationState state, string replyText)
@@ -423,7 +451,7 @@ public class AlexaRequestRouter
         state.WaitingForReplyConfirmation = true;
         state.WaitingForFinalSendConfirmation = false;
 
-        return AlexaResponseFactory.Speak($"Entendí. {state.ReplyText}. Puedes decir agregar algo más, enviar, o no para terminar de escribir.", state);
+        return AlexaResponseFactory.Speak($"Entendí. {state.ReplyText}. Puedes decir agregar algo más o enviar.", state);
     }
 
     private static bool TryGetReplyText(AlexaRequest request, out string replyText)
