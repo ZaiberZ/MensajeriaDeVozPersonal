@@ -33,6 +33,7 @@ const showActionMessage = (text, kind = "info") => {
 
 const expandedLogIds = new Set();
 const pendingPanelLogKey = "voiceMessaging.pendingPanelLog";
+let pendingFavoriteSyncRequestId = null;
 
 async function reportPendingPanelLog() {
     const pendingLog = window.localStorage.getItem(pendingPanelLogKey);
@@ -261,6 +262,16 @@ async function refreshStatus() {
 
         const status = await response.json();
 
+        if (pendingFavoriteSyncRequestId && status.favoriteMessagesSync?.requestId === pendingFavoriteSyncRequestId) {
+            if (status.favoriteMessagesSync.state === "completed") {
+                showActionMessage("Los últimos mensajes de los contactos favoritos se recuperaron correctamente.", "success");
+                pendingFavoriteSyncRequestId = null;
+            } else if (status.favoriteMessagesSync.state === "failed") {
+                showActionMessage("No fue posible recuperar los últimos mensajes de los contactos favoritos. El Worker volverá a intentarlo.", "error");
+                pendingFavoriteSyncRequestId = null;
+            }
+        }
+
         document.getElementById("workerCard").hidden = status.workerRunning === true;
         document.getElementById("userPhoneCard").hidden = status.userPhoneRegistered === true;
         setStatus("worker", status.workerRunning ? "ok" : "bad", status.workerRunning ? "Ejecutándose" : "Detenido o sin respuesta");
@@ -309,6 +320,8 @@ document.getElementById("favoriteSyncButton").addEventListener("click", async ()
 
         if (!response.ok)
             throw new Error(body.error || "HTTP " + response.status);
+
+        pendingFavoriteSyncRequestId = body.requestId;
 
         showActionMessage("Solicitud enviada. El Worker iniciará la sincronización en aproximadamente 30 segundos.", "success");
     } catch (error) {

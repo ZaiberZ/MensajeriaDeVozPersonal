@@ -633,14 +633,24 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
 
         const contacts = await client.getContacts();
 
-        return contacts
+        const uniqueContacts = new Map();
+
+        for (const contact of contacts
             .filter(contact => contact.isMyContact && contact.id && contact.id.user)
             .map(contact => ({
                 name: contact.name || contact.pushname || contact.number || contact.id.user,
                 phone: contact.id.user,
                 chatId: contact.id._serialized,
                 source: "WhatsApp"
-            }))
+            }))) {
+            const identity = normalizePhone(contact.phone) || contact.chatId;
+            const existing = uniqueContacts.get(identity);
+
+            if (!existing || (existing.name === existing.phone && contact.name !== contact.phone))
+                uniqueContacts.set(identity, contact);
+        }
+
+        return [...uniqueContacts.values()]
             .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
     }
 

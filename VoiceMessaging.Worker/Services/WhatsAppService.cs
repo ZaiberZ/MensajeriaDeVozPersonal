@@ -130,6 +130,12 @@ public class WhatsAppService
         }
     }
 
+    public async Task ReportFavoriteMessagesSyncResultAsync(bool completed, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/worker-actions/favorite-sync/result", new { completed }, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<GatewayLogsResponseDto> GetUnreportedErrorLogsAsync(int limit, CancellationToken cancellationToken)
     {
         var response = await _httpClient.GetAsync($"/logs/unreported-errors?limit={limit}", cancellationToken);

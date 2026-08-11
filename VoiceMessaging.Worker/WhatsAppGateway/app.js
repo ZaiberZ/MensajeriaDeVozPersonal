@@ -17,6 +17,7 @@ const workerStatus = {
     hasPendingMessages: false
 };
 let favoriteMessagesSyncRequested = false;
+let favoriteMessagesSyncStatus = null;
 const workerHeartbeatTimeoutMs = 2 * 60 * 1000;
 const airbnbEmailNotificationIntervalMs = 60 * 60 * 1000; // 1 hr
 const supportEmailReportsEnabled = false;
@@ -129,13 +130,32 @@ app.post("/worker-actions/favorite-sync", async (req, res) => {
         return res.status(409).json({ success: false, error: "WhatsApp todavía no está conectado." });
 
     favoriteMessagesSyncRequested = true;
-    res.status(202).json({ success: true });
+    favoriteMessagesSyncStatus = {
+        requestId: Date.now().toString(),
+        state: "pending",
+        requestedAt: new Date().toISOString()
+    };
+    res.status(202).json({ success: true, requestId: favoriteMessagesSyncStatus.requestId });
 });
 
 app.post("/worker-actions/favorite-sync/consume", (req, res) => {
     const requested = favoriteMessagesSyncRequested;
     favoriteMessagesSyncRequested = false;
+    if (requested && favoriteMessagesSyncStatus)
+        favoriteMessagesSyncStatus.state = "running";
     res.json({ requested });
+});
+
+app.post("/worker-actions/favorite-sync/result", (req, res) => {
+    if (!favoriteMessagesSyncStatus)
+        return res.status(409).json({ success: false, error: "No hay una sincronización manual pendiente." });
+
+    favoriteMessagesSyncStatus = {
+        ...favoriteMessagesSyncStatus,
+        state: req.body?.completed === true ? "completed" : "failed",
+        completedAt: new Date().toISOString()
+    };
+    res.json({ success: true });
 });
 
 app.get("/app-status-data", async (req, res) => {
@@ -157,7 +177,8 @@ app.get("/app-status-data", async (req, res) => {
         gmail: gmailStatus,
         userPhoneRegistered: Boolean(whatsappStatus.User?.Phone?.trim()),
         hasPendingMessages: workerRunning ? workerStatus.hasPendingMessages : null,
-        lastWorkerHeartbeat: workerStatus.lastHeartbeat?.toISOString() ?? null
+        lastWorkerHeartbeat: workerStatus.lastHeartbeat?.toISOString() ?? null,
+        favoriteMessagesSync: favoriteMessagesSyncStatus
     });
 });
 

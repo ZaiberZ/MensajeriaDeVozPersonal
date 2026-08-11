@@ -173,6 +173,9 @@ public class Worker : BackgroundService
                 }
 
                 nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(favoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
+
+                if (manualFavoriteSyncRequested)
+                    await whatsApp.ReportFavoriteMessagesSyncResultAsync(favoriteSyncCompleted, stoppingToken);
             }
 
             if (airbnbGatewayEnabled && DateTime.UtcNow >= nextAirbnbCheckAt)

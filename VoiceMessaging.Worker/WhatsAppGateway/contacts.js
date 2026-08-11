@@ -10,11 +10,8 @@ const loadContacts = document.getElementById("loadContacts");
 const addFrequent = document.getElementById("addFrequent");
 const refreshFrequent = document.getElementById("refreshFrequent");
 const frequentName = document.getElementById("frequentName");
-const frequentAliases = [
-    document.getElementById("frequentAlias1"),
-    document.getElementById("frequentAlias2"),
-    document.getElementById("frequentAlias3")
-];
+const frequentAliases = document.getElementById("frequentAliases");
+const addFrequentAlias = document.getElementById("addFrequentAlias");
 const saveFrequentName = document.getElementById("saveFrequentName");
 const whatsappContacts = document.getElementById("whatsappContacts");
 const frequentContacts = document.getElementById("frequentContacts");
@@ -215,8 +212,6 @@ function updateFrequentEditor() {
     const contact = state.selectedFrequentContact;
     frequentName.disabled = !contact;
     saveFrequentName.disabled = !contact;
-    for (const aliasInput of frequentAliases)
-        aliasInput.disabled = !contact;
     frequentName.placeholder = contact
         ? "Nombre del contacto favorito"
         : "Selecciona un favorito para editar su nombre";
@@ -224,16 +219,46 @@ function updateFrequentEditor() {
     if (document.activeElement !== frequentName)
         frequentName.value = contact?.name || "";
 
-    frequentAliases.forEach((input, index) => {
-        if (document.activeElement !== input)
-            input.value = contact?.aliases?.[index] || "";
+    renderAliasEditor(contact?.aliases || []);
+}
+
+function renderAliasEditor(aliases) {
+    frequentAliases.innerHTML = "";
+
+    aliases.forEach((alias, index) => {
+        const row = document.createElement("div");
+        row.className = "alias-row";
+        row.innerHTML = `
+            <input type="text" maxlength="100" aria-label="Nombre alternativo ${index + 1}">
+            <button class="danger" type="button" aria-label="Eliminar nombre alternativo ${index + 1}">Eliminar</button>
+        `;
+        const input = row.querySelector("input");
+        input.value = alias;
+        input.addEventListener("keydown", event => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                updateFrequentName();
+            }
+        });
+        row.querySelector("button").addEventListener("click", () => {
+            row.remove();
+            updateAliasControls();
+        });
+        frequentAliases.appendChild(row);
     });
+
+    updateAliasControls();
+}
+
+function updateAliasControls() {
+    const contactSelected = Boolean(state.selectedFrequentContact);
+    addFrequentAlias.disabled = !contactSelected || frequentAliases.querySelectorAll("input").length >= 3;
 }
 
 async function updateFrequentName() {
     const contact = state.selectedFrequentContact;
     const name = frequentName.value.trim();
-    const aliases = frequentAliases.map(input => input.value.trim()).filter(Boolean);
+    const aliases = [...frequentAliases.querySelectorAll("input")].map(input => input.value.trim()).filter(Boolean);
 
     if (!contact)
         return;
@@ -264,7 +289,7 @@ async function updateFrequentName() {
     }
 
     frequentName.disabled = true;
-    for (const aliasInput of frequentAliases)
+    for (const aliasInput of frequentAliases.querySelectorAll("input"))
         aliasInput.disabled = true;
     saveFrequentName.disabled = true;
     setMessage(frequentMessage, "Guardando nombres...");
@@ -411,20 +436,21 @@ addFrequent.addEventListener("keydown", event => {
 });
 refreshFrequent.addEventListener("click", loadFrequentContacts);
 saveFrequentName.addEventListener("click", updateFrequentName);
+addFrequentAlias.addEventListener("click", () => {
+    if (!state.selectedFrequentContact || frequentAliases.querySelectorAll("input").length >= 3)
+        return;
+
+    const aliases = [...frequentAliases.querySelectorAll("input")].map(input => input.value);
+    aliases.push("");
+    renderAliasEditor(aliases);
+    frequentAliases.lastElementChild?.querySelector("input")?.focus();
+});
 frequentName.addEventListener("keydown", event => {
     if (event.key === "Enter") {
         event.preventDefault();
         updateFrequentName();
     }
 });
-for (const aliasInput of frequentAliases) {
-    aliasInput.addEventListener("keydown", event => {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            updateFrequentName();
-        }
-    });
-}
 whatsappContacts.addEventListener("keydown", event => {
     if (event.ctrlKey && event.key === "Enter") {
         event.preventDefault();
