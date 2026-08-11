@@ -24,7 +24,12 @@
             background: #ffffff;
             border-bottom: 1px solid #d9e1ef;
             flex: 0 0 auto;
-            padding: 18px 24px;
+            padding: 10px 24px;
+        }
+
+        header p {
+            font-size: 14px;
+            margin: 4px 0 0;
         }
 
         main {
@@ -54,7 +59,7 @@
         }
 
         h1 {
-            font-size: 24px;
+            font-size: 20px;
         }
 
         h2 {
@@ -154,6 +159,16 @@
             box-shadow: 0 0 0 2px rgba(22, 93, 255, .12);
         }
 
+        .item.favorite {
+            border-color: #e0a800;
+            box-shadow: inset 3px 0 0 #e0a800;
+        }
+
+        .item.favorite.selected {
+            border-color: #165dff;
+            box-shadow: inset 3px 0 0 #e0a800, 0 0 0 2px rgba(22, 93, 255, .12);
+        }
+
         .item:focus {
             border-color: #165dff;
             outline: 3px solid rgba(22, 93, 255, .22);
@@ -211,6 +226,10 @@
             margin-top: 3px;
         }
 
+        .contact-editor[hidden] {
+            display: none;
+        }
+
         @media (max-width: 800px) {
             body {
                 height: auto;
@@ -260,12 +279,17 @@
             <h2>Frecuentes guardados</h2>
             <div class="toolbar">
                 <button id="refreshFrequent" class="secondary">Actualizar</button>
-                <input id="frequentName" type="text" maxlength="100" placeholder="Selecciona un favorito para editar su nombre" disabled>
-                <button id="saveFrequentName" type="button" disabled>Guardar nombres</button>
             </div>
-            <div id="frequentAliases" class="alias-editor"></div>
-            <div class="alias-toolbar">
-                <button id="addFrequentAlias" class="secondary" type="button" disabled>Agregar nombre alternativo</button>
+            <div id="frequentEditor" class="contact-editor" hidden>
+                <div class="toolbar">
+                    <input id="frequentName" type="text" maxlength="100" placeholder="Nombre del contacto favorito">
+                </div>
+                <div id="frequentAliases" class="alias-editor"></div>
+                <div class="actions alias-toolbar">
+                    <button id="addFrequentAlias" class="secondary" type="button">Agregar nombre alternativo</button>
+                    <button id="saveFrequentName" type="button">Guardar nombres</button>
+                    <button id="cancelFrequentEdit" class="secondary" type="button">Cancelar</button>
+                </div>
             </div>
             <div id="frequentContacts" class="list" style="margin-top:14px"></div>
             <div id="frequentMessage" class="message"></div>

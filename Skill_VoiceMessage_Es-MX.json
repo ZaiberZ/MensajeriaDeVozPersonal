@@ -71,7 +71,11 @@
             }
           ],
           "samples": [
-            "mi mensaje es {respuesta}"
+            "mi mensaje es {respuesta}",
+            "el mensaje es {respuesta}",
+            "quiero decir {respuesta}",
+            "escribe {respuesta}",
+            "agrega al mensaje {respuesta}"
           ]
         },
         {
@@ -87,10 +91,15 @@
             "quiero escribir un mensaje",
             "manda un mensaje",
             "manda mensaje",
+            "mandar mensaje a {ContactName}",
+            "manda un mensaje a {ContactName}",
             "escribe a {ContactName}",
             "escribe mensaje a {ContactName}",
             "manda mensaje a {ContactName}",
+            "mándale mensaje a {ContactName}",
+            "mándale un mensaje a {ContactName}",
             "envia mensaje a {ContactName}",
+            "envía un mensaje a {ContactName}",
             "quiero escribir a {ContactName}"
           ]
         },
@@ -169,6 +178,19 @@
           ]
         },
         {
+          "name": "AgregarMasIntent",
+          "slots": [],
+          "samples": [
+            "agregar algo más",
+            "agrega algo más",
+            "quiero agregar algo más",
+            "añadir algo más",
+            "añade algo más",
+            "continuar el mensaje",
+            "agregar al mensaje"
+          ]
+        },
+        {
           "name": "ConfirmarIntent",
           "slots": [],
           "samples": [
@@ -178,6 +200,9 @@
             "confirmar",
             "envíalo",
             "enviar",
+            "listo",
+            "sí enviar",
+            "listo envíalo",
             "de acuerdo",
             "adelante",
             "el número es correcto",
