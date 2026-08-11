@@ -24,6 +24,14 @@
           "samples": []
         },
         {
+          "name": "AMAZON.YesIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NoIntent",
+          "samples": []
+        },
+        {
           "name": "LeerMensajesIntent",
           "slots": [],
           "samples": [
@@ -88,6 +96,9 @@
           ],
           "samples": [
             "escribe mensaje",
+            "escribir mensaje",
+            "escribir mensajes",
+            "quiero escribir mensajes",
             "quiero escribir un mensaje",
             "manda un mensaje",
             "manda mensaje",
@@ -199,8 +210,12 @@
             "correcto",
             "confirmar",
             "envíalo",
+            "envialo",
             "enviar",
+            "mándalo",
+            "mandalo",
             "listo",
+            "sí mándalo",
             "sí enviar",
             "listo envíalo",
             "de acuerdo",
@@ -214,7 +229,6 @@
           "slots": [],
           "samples": [
             "cancelar",
-            "no",
             "olvídalo",
             "olvidalo",
             "mejor no",

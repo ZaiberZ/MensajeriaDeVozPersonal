@@ -13,10 +13,10 @@ public class AlexaPhoneRegistrationHandler(AlexaUserPhoneService phoneService)
         if (intentName == "ConfigurarTelefonoIntent")
             return BeginRegistration(request, state);
 
-        if (intentName == "ConfirmarIntent" && state.WaitingForPhoneConfirmation)
+        if ((intentName is "ConfirmarIntent" or "AMAZON.YesIntent") && state.WaitingForPhoneConfirmation)
             return await ConfirmRegistrationAsync(request, state);
 
-        if (intentName == "CancelarRespuestaIntent" && state.WaitingForPhoneConfirmation)
+        if ((intentName is "CancelarRespuestaIntent" or "AMAZON.NoIntent") && state.WaitingForPhoneConfirmation)
             return CancelRegistration(state);
 
         return null;

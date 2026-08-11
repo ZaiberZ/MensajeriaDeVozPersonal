@@ -9,6 +9,7 @@ public class ConversationState
     public bool WaitingForReply { get; set; }
 
     public bool WaitingForReplyConfirmation { get; set; }
+    public bool WaitingForFinalSendConfirmation { get; set; }
 
     public string CurrentMessageId { get; set; } = "";
 
@@ -48,6 +49,9 @@ public class ConversationState
 
         if (attributes.TryGetValue(nameof(WaitingForReplyConfirmation), out var waitingForReplyConfirmation))
             state.WaitingForReplyConfirmation = waitingForReplyConfirmation.GetBoolean();
+
+        if (attributes.TryGetValue(nameof(WaitingForFinalSendConfirmation), out var waitingForFinalSendConfirmation))
+            state.WaitingForFinalSendConfirmation = waitingForFinalSendConfirmation.GetBoolean();
 
         if (attributes.TryGetValue(nameof(CurrentMessageId), out var id))
             state.CurrentMessageId = id.GetString() ?? "";
@@ -113,6 +117,7 @@ public class ConversationState
             { nameof(CurrentMessageIndex), CurrentMessageIndex },
             { nameof(WaitingForReply), WaitingForReply },
             { nameof(WaitingForReplyConfirmation), WaitingForReplyConfirmation },
+            { nameof(WaitingForFinalSendConfirmation), WaitingForFinalSendConfirmation },
             { nameof(CurrentMessageId), CurrentMessageId },
             { nameof(CurrentConversationSpeech), CurrentConversationSpeech },
             { nameof(CurrentSender), CurrentSender },
