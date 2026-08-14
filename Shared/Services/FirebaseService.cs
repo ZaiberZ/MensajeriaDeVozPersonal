@@ -39,6 +39,8 @@ public class FirebaseService
     private string ControlPath => $"{UserPath}/control";
     private string ConfigurationPath => $"{UserPath}/configuracion";
     private string DiagnosticsPath => $"{UserPath}/diagnosticos/logs_error";
+    private string AlexaWriteTracesPath => $"{UserPath}/diagnosticos/intentos_envio_alexa";
+    private string DiagnosticLogsPath => $"{UserPath}/diagnosticos/logs";
 
     public async Task<bool> HasPendingMessagesAsync()
     {
@@ -187,31 +189,20 @@ public class FirebaseService
     }
     public async Task<List<MessageDto>> GetPendingMessagesAsync()
     {
-        try
+        var json = await _httpClient.GetStringAsync($"{PendingMessagesPath}.json");
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
+
+        var dictionary = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json, _jsonOptions);
+
+        if (dictionary == null || dictionary.Count == 0) return [];
+
+        return dictionary.Where(item => item.Value != null && !item.Value.IsRead)
+            .Select(item =>
         {
-            var json = await _httpClient.GetStringAsync($"{PendingMessagesPath}.json");
-
-            if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
-
-            var dictionary = JsonSerializer.Deserialize<Dictionary<string, MessageDto>>(json, _jsonOptions);
-
-            if (dictionary == null || dictionary.Count == 0) return [];
-
-            var messages = dictionary.Where(item => item.Value != null && !item.Value.IsRead)
-                .Select(item =>
-                {
-                    item.Value.Id = item.Key;
-                    return item.Value;
-                }).OrderBy(m => m.Date).ToList();
-
-            return messages;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex);
-
-            return [];
-        }
+            item.Value.Id = item.Key;
+            return item.Value;
+        }).OrderBy(message => message.Date).ToList();
     }
 
     public async Task<List<MessageDto>> GetAllMessagesAsync()
@@ -237,7 +228,7 @@ public class FirebaseService
             .ToList();
     }
 
-    public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text)
+    public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text, string alexaWriteTraceId = "")
     {
         if (string.IsNullOrWhiteSpace(phone) && !SupportsReplyWithoutPhone(currentSource))
             throw new ArgumentException("No se puede guardar una respuesta sin destinatario.", nameof(phone));
@@ -245,6 +236,7 @@ public class FirebaseService
         var reply = new ReplyMessageDto
         {
             MessageId = messageId,
+            AlexaWriteTraceId = alexaWriteTraceId,
             ChatId = chatId,
             Phone = phone,
             Sender = sender,
@@ -262,6 +254,78 @@ public class FirebaseService
 
         response.EnsureSuccessStatusCode();
         await SetHasPendingRepliesAsync(true);
+    }
+
+    public async Task SaveAlexaWriteTraceAsync(string traceId, AlexaWriteTraceDto trace, CancellationToken cancellationToken = default)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(trace, _jsonOptions), Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{AlexaWriteTracesPath}/{traceId}.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteAlexaWriteTraceAsync(string traceId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(traceId))
+            return;
+
+        var response = await _httpClient.DeleteAsync($"{AlexaWriteTracesPath}/{traceId}.json", cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task SaveDiagnosticLogAsync(DiagnosticLogDto log, CancellationToken cancellationToken = default)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(log, _jsonOptions), Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync($"{DiagnosticLogsPath}.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<int> DeleteDiagnosticLogsOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"{DiagnosticLogsPath}.json", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return 0;
+
+        var logs = JsonSerializer.Deserialize<Dictionary<string, DiagnosticLogDto>>(json, _jsonOptions);
+
+        if (logs == null || logs.Count == 0)
+            return 0;
+
+        var expiredIds = logs.Where(item => item.Value != null && item.Value.Timestamp < cutoff).Select(item => item.Key).ToList();
+
+        foreach (var logId in expiredIds)
+        {
+            var deleteResponse = await _httpClient.DeleteAsync($"{DiagnosticLogsPath}/{logId}.json", cancellationToken);
+            deleteResponse.EnsureSuccessStatusCode();
+        }
+
+        return expiredIds.Count;
+    }
+
+    public async Task<int> DeleteAlexaWriteTracesOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"{AlexaWriteTracesPath}.json", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return 0;
+
+        var traces = JsonSerializer.Deserialize<Dictionary<string, AlexaWriteTraceDto>>(json, _jsonOptions);
+
+        if (traces == null || traces.Count == 0)
+            return 0;
+
+        var expiredIds = traces.Where(item => item.Value != null && item.Value.UpdatedAt < cutoff).Select(item => item.Key).ToList();
+
+        foreach (var traceId in expiredIds)
+            await DeleteAlexaWriteTraceAsync(traceId, cancellationToken);
+
+        return expiredIds.Count;
     }
 
     public async Task<List<ContactDto>> GetFrequentContactsAsync(string phone)
@@ -386,34 +450,21 @@ public class FirebaseService
 
     public async Task<List<ReplyMessageDto>> GetPendingRepliesAsync()
     {
-        try
+        var json = await _httpClient.GetStringAsync($"{OutgoingMessagesPath}.json");
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
+
+        var dictionary = JsonSerializer.Deserialize<Dictionary<string, ReplyMessageDto>>(json, _jsonOptions);
+
+        if (dictionary == null) return [];
+
+        return dictionary.Where(item => item.Value != null &&
+            (!string.IsNullOrWhiteSpace(item.Value.Phone) || SupportsReplyWithoutPhone(item.Value.Source)))
+        .Select(item =>
         {
-            var json = await _httpClient.GetStringAsync($"{OutgoingMessagesPath}.json");
-
-            if (string.IsNullOrWhiteSpace(json) || json == "null") return [];
-
-            var dictionary = JsonSerializer.Deserialize<Dictionary<string, ReplyMessageDto>>(json, _jsonOptions);
-
-            if (dictionary == null) return [];
-
-            var replies = dictionary.Where(item => item.Value != null &&
-                (!string.IsNullOrWhiteSpace(item.Value.Phone) || SupportsReplyWithoutPhone(item.Value.Source)))
-           .Select(item =>
-           {
-               item.Value.Id = item.Key;
-               return item.Value;
-           }).OrderBy(m => m.Date).ToList();
-
-
-            return replies;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("Error leyendo mensajes_por_enviar:");
-            Console.WriteLine(ex);
-
-            return [];
-        }
+            item.Value.Id = item.Key;
+            return item.Value;
+        }).OrderBy(message => message.Date).ToList();
     }
 
     public async Task SaveIncomingMessageAsync(MessageDto message)

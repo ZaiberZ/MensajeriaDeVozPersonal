@@ -32,6 +32,11 @@ public class ConversationService
         return messages.OrderBy(m => m.ChatId).ThenBy(m => m.Date).ToList();
     }
 
+    public Task<List<ReplyMessageDto>> GetPendingRepliesAsync()
+    {
+        return _firebase.GetPendingRepliesAsync();
+    }
+
     public static string ReadMessage(List<MessageDto> messages, int index)
     {
         if (!messages.Any())
@@ -80,9 +85,14 @@ public class ConversationService
             .TakeLast(count)
             .ToList();
     }
-    public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text)
+    public async Task SaveReplyAsync(string messageId, string chatId, string phone, string sender, string account, string currentSource, string text, string alexaWriteTraceId)
     {
-        await _firebase.SaveReplyAsync(messageId, chatId, phone, sender, account, currentSource, text);
+        await _firebase.SaveReplyAsync(messageId, chatId, phone, sender, account, currentSource, text, alexaWriteTraceId);
+    }
+
+    public Task SaveAlexaWriteTraceAsync(string traceId, AlexaWriteTraceDto trace)
+    {
+        return _firebase.SaveAlexaWriteTraceAsync(traceId, trace);
     }
     public Task<List<ContactDto>> GetFrequentContactsAsync(string phone)
     {

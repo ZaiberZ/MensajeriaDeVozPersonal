@@ -33,6 +33,10 @@ public class ConversationState
     public string PendingText { get; set; } = "";
     public bool WaitingForContactConfirmation { get; set; }
     public bool WaitingForLastMessagesContactConfirmation { get; set; }
+    public string AlexaWriteTraceId { get; set; } = "";
+    public DateTime AlexaWriteTraceStartedAt { get; set; }
+    public List<string> AlexaWriteTraceTurns { get; set; } = [];
+    public bool AlexaWriteTraceQueued { get; set; }
 
     public static ConversationState FromSession(Dictionary<string, JsonElement>? attributes)
     {
@@ -107,6 +111,20 @@ public class ConversationState
         if (attributes.TryGetValue(nameof(WaitingForLastMessagesContactConfirmation), out var waitingForLastMessagesContactConfirmation))
             state.WaitingForLastMessagesContactConfirmation = waitingForLastMessagesContactConfirmation.GetBoolean();
 
+        if (attributes.TryGetValue(nameof(AlexaWriteTraceId), out var alexaWriteTraceId))
+            state.AlexaWriteTraceId = alexaWriteTraceId.GetString() ?? "";
+
+        if (attributes.TryGetValue(nameof(AlexaWriteTraceStartedAt), out var alexaWriteTraceStartedAt) &&
+            alexaWriteTraceStartedAt.ValueKind == JsonValueKind.String &&
+            DateTime.TryParse(alexaWriteTraceStartedAt.GetString(), out var parsedTraceStartedAt))
+            state.AlexaWriteTraceStartedAt = parsedTraceStartedAt;
+
+        if (attributes.TryGetValue(nameof(AlexaWriteTraceTurns), out var alexaWriteTraceTurns) && alexaWriteTraceTurns.ValueKind == JsonValueKind.Array)
+            state.AlexaWriteTraceTurns = alexaWriteTraceTurns.EnumerateArray().Select(item => item.GetString() ?? "").Where(item => !string.IsNullOrWhiteSpace(item)).ToList();
+
+        if (attributes.TryGetValue(nameof(AlexaWriteTraceQueued), out var alexaWriteTraceQueued))
+            state.AlexaWriteTraceQueued = alexaWriteTraceQueued.GetBoolean();
+
         return state;
     }
 
@@ -136,6 +154,10 @@ public class ConversationState
             { nameof(PendingText), PendingText },
             { nameof(WaitingForContactConfirmation), WaitingForContactConfirmation },
             { nameof(WaitingForLastMessagesContactConfirmation), WaitingForLastMessagesContactConfirmation },
+            { nameof(AlexaWriteTraceId), AlexaWriteTraceId },
+            { nameof(AlexaWriteTraceStartedAt), AlexaWriteTraceStartedAt },
+            { nameof(AlexaWriteTraceTurns), AlexaWriteTraceTurns },
+            { nameof(AlexaWriteTraceQueued), AlexaWriteTraceQueued },
         };
     }
 }

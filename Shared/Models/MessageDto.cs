@@ -49,6 +49,7 @@ public class MessageDto
 public class ReplyMessageDto
 {
     public string Id { get; set; } = "";
+    public string AlexaWriteTraceId { get; set; } = "";
     public string MessageId { get; set; } = "";
     public string ChatId { get; set; } = "";
     public string Phone { get; set; } = "";

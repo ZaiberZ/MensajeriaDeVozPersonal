@@ -80,6 +80,20 @@ public class PendingReplyProcessor
 
                     await _firebase.RegisterLastSentMessageAsync(reply, AppClock.Now, stoppingToken);
                     await _firebase.DeleteReplyAsync(reply.Id);
+
+                    // La confirmación real de entrega permite retirar el diagnóstico de esta sesión de Alexa.
+                    if (!string.IsNullOrWhiteSpace(reply.AlexaWriteTraceId))
+                    {
+                        try
+                        {
+                            await _firebase.DeleteAlexaWriteTraceAsync(reply.AlexaWriteTraceId, stoppingToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "El mensaje fue confirmado, pero no se pudo eliminar el seguimiento de Alexa {traceId}.", reply.AlexaWriteTraceId);
+                        }
+                    }
+
                     _logger.LogInformation("Respuesta confirmada y eliminada de pendientes en Firebase: {sender} - {text}", reply.Sender, reply.Text);
                 }
                 catch (Exception ex)

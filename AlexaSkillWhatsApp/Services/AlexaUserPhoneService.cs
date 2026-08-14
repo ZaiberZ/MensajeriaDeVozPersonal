@@ -97,7 +97,7 @@ public class AlexaUserPhoneService
 
             return DigitsOnly(users.Keys.Single());
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.BadRequest)
         {
             return null;
         }

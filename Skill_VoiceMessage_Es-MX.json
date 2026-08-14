@@ -47,6 +47,20 @@
           ]
         },
         {
+          "name": "ConsultarMensajesPendientesIntent",
+          "slots": [],
+          "samples": [
+            "tengo mensajes pendientes por enviar",
+            "hay mensajes pendientes por enviar",
+            "cuántos mensajes faltan por enviar",
+            "cuántos mensajes tengo pendientes",
+            "consulta los mensajes pendientes",
+            "revisa los mensajes pendientes por enviar",
+            "dime qué mensajes están pendientes por enviar",
+            "mensajes pendientes por enviar"
+          ]
+        },
+        {
           "name": "ResponderMensajeIntent",
           "slots": [
             {

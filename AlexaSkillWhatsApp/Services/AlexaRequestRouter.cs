@@ -3,8 +3,10 @@ using AlexaSkillWhatsApp.Models;
 using Amazon.Lambda.Core;
 using Shared.Models;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace AlexaSkillWhatsApp.Services;
 
@@ -23,20 +25,51 @@ public class AlexaRequestRouter
 
     public async Task<string> Process(AlexaRequest request)
     {
-        return request.Request.Type switch
+        // Se conserva el diálogo en la sesión y solo se persiste cuando inicia una operación de escritura.
+        var state = ConversationState.FromSession(request.Session?.Attributes);
+
+        if (state.AlexaWriteTraceQueued && (request.Request.Intent?.Name is "WriteContactMessageIntent" or "ResponderMensajeIntent"))
         {
-            "LaunchRequest" => await Launch(),
+            state.AlexaWriteTraceId = "";
+            state.AlexaWriteTraceStartedAt = default;
+            state.AlexaWriteTraceQueued = false;
+        }
+
+        AppendTraceTurn(state, DescribeRequest(request));
+        SetRequestState(request, state);
+
+        var response = request.Request.Type switch
+        {
+            "LaunchRequest" => await Launch(request),
             "IntentRequest" => await Intent(request),
-            _ => AlexaResponseFactory.Speak("No pude entender la solicitud.")
+            "SessionEndedRequest" => AlexaResponseFactory.EndConversation("Hasta luego.", state),
+            _ => AlexaResponseFactory.Speak("No pude entender la solicitud.", state)
         };
+        var responseState = GetResponseState(response, state);
+        AppendTraceTurn(responseState, $"Alexa: {GetResponseSpeech(response)}");
+
+        if (HasStartedWriting(responseState) || !string.IsNullOrWhiteSpace(responseState.AlexaWriteTraceId))
+        {
+            try
+            {
+                await PersistWriteTraceAsync(request, responseState);
+            }
+            catch (Exception ex)
+            {
+                // Un fallo del diagnóstico no debe interrumpir ni perder el mensaje que el usuario dicta.
+                context.Logger.LogLine($"No se pudo guardar el seguimiento del dictado en Firebase: {ex}");
+            }
+        }
+
+        return SetResponseState(response, responseState);
     }
 
-    private async Task<string> Launch()
+    private async Task<string> Launch(AlexaRequest request)
     {
         // return AlexaResponseFactory.Speak("Bienvenido al Hub de Mensajería. ¿Qué deseas hacer?");
         var text = await _conversation.ReadConversationSummaryAsync();
 
-        return AlexaResponseFactory.Speak(text);
+        return AlexaResponseFactory.Speak(text, ConversationState.FromSession(request.Session?.Attributes));
 
         //return AlexaResponseFactory.Speak(
 
@@ -68,6 +101,7 @@ public class AlexaRequestRouter
         return intentName switch
         {
             "LeerMensajesIntent" => await ReadMessages(),
+            "ConsultarMensajesPendientesIntent" => await ReadPendingReplies(),
             "SiguienteMensajeIntent" => await NextMessage(request),
             "RepetirMensajeIntent" => RepeatMessage(request),
             "LeerUltimosMensajesIntent" => await ReadLastMessages(request),
@@ -79,12 +113,161 @@ public class AlexaRequestRouter
             "ConfirmarIntent" or "AMAZON.YesIntent" => await ConfirmReply(request),
             "AMAZON.NoIntent" => HandleNo(request),
             "CancelarRespuestaIntent" => CancelReply(request),
-            "AMAZON.HelpIntent" => AlexaResponseFactory.Speak("Puedes decir leer mensajes, leer los últimos mensajes, siguiente, repetir, responder, escribir a un contacto o configurar mi número de WhatsApp."),
-            "AMAZON.FallbackIntent" => AlexaResponseFactory.Speak("No entendí ese comando. Puedes decir leer mensajes, escribir a un contacto o pedir ayuda."),
-            "AMAZON.NavigateHomeIntent" => await Launch(),
+            "AMAZON.HelpIntent" => AlexaResponseFactory.Speak("Puedes decir leer mensajes, consultar mensajes pendientes por enviar, leer los últimos mensajes, responder, escribir a un contacto o configurar mi número de WhatsApp."),
+            "AMAZON.FallbackIntent" => AlexaResponseFactory.Speak("No entendí ese comando. Puedes decir leer mensajes, consultar mensajes pendientes por enviar, escribir a un contacto o pedir ayuda."),
+            "AMAZON.NavigateHomeIntent" => await Launch(request),
             "AMAZON.StopIntent" or "AMAZON.CancelIntent" => AlexaResponseFactory.EndConversation("Hasta luego."),
             _ => AlexaResponseFactory.Speak("No entendí ese comando.")
         };
+    }
+
+    private static void SetRequestState(AlexaRequest request, ConversationState state)
+    {
+        request.Session ??= new Session();
+        request.Session.Attributes = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(state.ToSessionAttributes()));
+    }
+
+    private static ConversationState GetResponseState(string response, ConversationState fallbackState)
+    {
+        using var document = JsonDocument.Parse(response);
+
+        if (!document.RootElement.TryGetProperty("sessionAttributes", out var attributes) || attributes.ValueKind != JsonValueKind.Object)
+            return fallbackState;
+
+        var responseState = ConversationState.FromSession(JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(attributes.GetRawText()));
+
+        // Algunos flujos reinician su estado funcional; el historial de diagnóstico debe sobrevivir al cambio.
+        if (responseState.AlexaWriteTraceTurns.Count == 0)
+            responseState.AlexaWriteTraceTurns = fallbackState.AlexaWriteTraceTurns.ToList();
+
+        if (string.IsNullOrWhiteSpace(responseState.AlexaWriteTraceId))
+        {
+            responseState.AlexaWriteTraceId = fallbackState.AlexaWriteTraceId;
+            responseState.AlexaWriteTraceStartedAt = fallbackState.AlexaWriteTraceStartedAt;
+            responseState.AlexaWriteTraceQueued = fallbackState.AlexaWriteTraceQueued;
+        }
+
+        return responseState;
+    }
+
+    private static string SetResponseState(string response, ConversationState state)
+    {
+        var root = JsonNode.Parse(response)?.AsObject() ?? new JsonObject();
+        root["sessionAttributes"] = JsonSerializer.SerializeToNode(state.ToSessionAttributes());
+        return root.ToJsonString();
+    }
+
+    private static string GetResponseSpeech(string response)
+    {
+        using var document = JsonDocument.Parse(response);
+
+        if (document.RootElement.TryGetProperty("response", out var responseBody) &&
+            responseBody.TryGetProperty("outputSpeech", out var outputSpeech) &&
+            outputSpeech.TryGetProperty("text", out var text))
+            return text.GetString() ?? "";
+
+        return "";
+    }
+
+    private static string DescribeRequest(AlexaRequest request)
+    {
+        if (request.Request.Type == "LaunchRequest")
+            return "Usuario: invocó la skill.";
+
+        if (request.Request.Type == "SessionEndedRequest")
+            return "Sistema: la sesión terminó.";
+
+        var intentName = request.Request.Intent?.Name ?? request.Request.Type;
+        var slots = request.Request.Intent?.Slots?.Values
+            .Where(slot => !string.IsNullOrWhiteSpace(slot.Value))
+            .Select(slot => $"{slot.Name}: {slot.Value}")
+            .ToList() ?? [];
+        return slots.Count == 0 ? $"Usuario: {intentName}." : $"Usuario: {intentName}. {string.Join("; ", slots)}.";
+    }
+
+    private static void AppendTraceTurn(ConversationState state, string turn)
+    {
+        if (string.IsNullOrWhiteSpace(turn))
+            return;
+
+        state.AlexaWriteTraceTurns.Add(turn.Trim());
+
+        while (state.AlexaWriteTraceTurns.Count > 50 || state.AlexaWriteTraceTurns.Sum(item => item.Length) > 12000)
+            state.AlexaWriteTraceTurns.RemoveAt(0);
+    }
+
+    private static bool HasStartedWriting(ConversationState state)
+    {
+        return state.WaitingForReply || state.WaitingForContactMessage || state.WaitingForReplyConfirmation;
+    }
+
+    private async Task PersistWriteTraceAsync(AlexaRequest request, ConversationState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.AlexaWriteTraceId))
+        {
+            var sessionId = request.Session?.SessionId ?? Guid.NewGuid().ToString("N");
+            state.AlexaWriteTraceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sessionId))).ToLowerInvariant();
+            state.AlexaWriteTraceStartedAt = AppClock.Now;
+        }
+
+        var trace = new AlexaWriteTraceDto
+        {
+            SessionId = request.Session?.SessionId ?? "",
+            StartedAt = state.AlexaWriteTraceStartedAt == default ? AppClock.Now : state.AlexaWriteTraceStartedAt,
+            UpdatedAt = AppClock.Now,
+            Status = state.AlexaWriteTraceQueued ? "queued_for_delivery" : request.Request.Type == "SessionEndedRequest" ? "session_ended" : "dictation_in_progress",
+            Turns = state.AlexaWriteTraceTurns.ToList()
+        };
+
+        await _conversation.SaveAlexaWriteTraceAsync(state.AlexaWriteTraceId, trace);
+    }
+
+    private async Task<string> ReadPendingReplies()
+    {
+        var pendingReplies = await _conversation.GetPendingRepliesAsync();
+
+        if (pendingReplies.Count == 0)
+            return AlexaResponseFactory.Speak("No tienes mensajes pendientes por enviar.");
+
+        var groups = pendingReplies
+            .OrderBy(reply => reply.Date)
+            .GroupBy(GetPendingReplyRecipient)
+            .Select(group => new
+            {
+                Recipient = group.Key,
+                Count = group.Count(),
+                FirstPendingAt = group.Min(reply => reply.Date)
+            })
+            .OrderBy(group => group.FirstPendingAt)
+            .ToList();
+        var speech = new StringBuilder($"Tienes {FormatMessageCount(pendingReplies.Count)} pendientes por enviar. ");
+
+        foreach (var group in groups)
+        {
+            speech.Append($"Para {group.Recipient}, {FormatMessageCount(group.Count)}. ");
+            speech.Append($"El primero fue guardado el {FormatPendingReplyDate(group.FirstPendingAt)}. ");
+        }
+
+        return AlexaResponseFactory.Speak(speech.ToString().Trim());
+    }
+
+    private static string GetPendingReplyRecipient(ReplyMessageDto reply)
+    {
+        if (!string.IsNullOrWhiteSpace(reply.Sender))
+            return reply.Sender.Trim();
+
+        if (!string.IsNullOrWhiteSpace(reply.Phone))
+            return reply.Phone.Trim();
+
+        return "un destinatario sin nombre";
+    }
+
+    private static string FormatMessageCount(int count) => count == 1 ? "1 mensaje" : $"{count} mensajes";
+
+    private static string FormatPendingReplyDate(DateTime date)
+    {
+        var culture = CultureInfo.GetCultureInfo("es-MX");
+        return date.ToString("d 'de' MMMM 'de' yyyy 'a las' h:mm tt", culture);
     }
 
     private async Task<string> ReadMessages()
@@ -581,9 +764,11 @@ public class AlexaRequestRouter
             state.CurrentSender,
             state.CurrentAccount,
             state.CurrentSource,
-            state.ReplyText
+            state.ReplyText,
+            state.AlexaWriteTraceId
         );
 
+        state.AlexaWriteTraceQueued = true;
         state.WaitingForReplyConfirmation = false;
         state.WaitingForFinalSendConfirmation = false;
         state.ReplyText = "";
@@ -603,9 +788,11 @@ public class AlexaRequestRouter
             state.SelectedContactName,
             "Personal",
             string.IsNullOrWhiteSpace(state.SelectedContactSource) ? "WhatsApp" : state.SelectedContactSource,
-            state.PendingText
+            state.PendingText,
+            state.AlexaWriteTraceId
         );
 
+        state.AlexaWriteTraceQueued = true;
         ClearContactMessageState(state);
         state.WaitingForReplyConfirmation = false;
         state.WaitingForFinalSendConfirmation = false;

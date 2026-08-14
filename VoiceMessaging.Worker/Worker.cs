@@ -23,6 +23,7 @@ public class Worker : BackgroundService
     private static readonly TimeSpan ErrorLogReportInterval = TimeSpan.FromDays(1);
     private static readonly TimeSpan ErrorLogReportCheckInterval = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan FirebaseErrorLogSyncInterval = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan AlexaWriteTraceCleanupInterval = TimeSpan.FromDays(1);
     private const int ErrorLogReportLimit = 10;
     private const int FirebaseErrorLogSnapshotLimit = 10;
     private const int FirebaseErrorLogRetentionDays = 30;
@@ -40,6 +41,7 @@ public class Worker : BackgroundService
     private StreamWriter? _gatewayLogWriter;
     private readonly object _gatewayLogLock = new();
     private DateTime? _lastErrorLogReportAt;
+    private DateTime? _lastAlexaWriteTraceCleanupAt;
 
     public Worker(ILogger<Worker> logger, IConfiguration configuration)
     {
@@ -96,6 +98,7 @@ public class Worker : BackgroundService
         var pendingReplyProcessor = new PendingReplyProcessor(whatsAppProcessor, airbnbProcessor, firebase, _logger, RegisterWorkerLogAsync);
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
         await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
+        await CleanupOldAlexaWriteTracesAsync(firebase, stoppingToken);
         await ReportUnreportedErrorLogsAsync(whatsApp, firebase, ErrorLogReportInterval, stoppingToken);
         await RegisterWorkerStartedAtAsync(stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
@@ -144,6 +147,7 @@ public class Worker : BackgroundService
             {
                 nextErrorLogReportCheckAt = DateTime.UtcNow.Add(ErrorLogReportCheckInterval);
                 await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
+                await CleanupOldAlexaWriteTracesAsync(firebase, stoppingToken);
                 await ReportUnreportedErrorLogsAsync(whatsApp, firebase, ErrorLogReportInterval, stoppingToken);
             }
 
@@ -486,6 +490,32 @@ public class Worker : BackgroundService
         {
             _logger.LogError(ex, "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.");
             await RegisterWorkerLogAsync("error", "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.", ex.ToString(), stoppingToken);
+        }
+    }
+
+    private async Task CleanupOldAlexaWriteTracesAsync(FirebaseService firebase, CancellationToken stoppingToken)
+    {
+        var now = AppClock.Now;
+
+        if (_lastAlexaWriteTraceCleanupAt.HasValue && now - _lastAlexaWriteTraceCleanupAt.Value < AlexaWriteTraceCleanupInterval)
+            return;
+
+        try
+        {
+            // Los seguimientos incompletos se conservan solo durante quince días.
+            var cutoff = now.AddDays(-15);
+            var deletedCount = await firebase.DeleteAlexaWriteTracesOlderThanAsync(cutoff, stoppingToken);
+            var deletedDiagnosticLogs = await firebase.DeleteDiagnosticLogsOlderThanAsync(cutoff, stoppingToken);
+            _lastAlexaWriteTraceCleanupAt = now;
+            _logger.LogInformation("Limpieza de diagnósticos de Alexa completada. Seguimientos eliminados: {traceCount}; logs eliminados: {logCount}.", deletedCount, deletedDiagnosticLogs);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No fue posible eliminar los seguimientos de escritura de Alexa vencidos.");
         }
     }
 
