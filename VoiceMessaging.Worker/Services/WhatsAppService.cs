@@ -34,12 +34,18 @@ public class WhatsAppService
         }
     }
 
-    public async Task SendMessageAsync(string phone, string text, CancellationToken cancellationToken = default)
+    public async Task<string> SendMessageAsync(string phone, string text, CancellationToken cancellationToken = default)
     {
         var request = new { phone, text };
         var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request, cancellationToken);
 
         response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<WhatsAppSendResponseDto>(cancellationToken: cancellationToken);
+
+        if (result?.Success != true || result.Confirmed != true || string.IsNullOrWhiteSpace(result.MessageId))
+            throw new InvalidOperationException("WhatsAppGateway no confirmó el envío del mensaje.");
+
+        return result.MessageId;
     }
 
     public async Task<List<WhatsAppIncomingMessageDto>> GetMessagesAsync()
@@ -158,9 +164,14 @@ public class WhatsAppService
 
     public async Task MarkLogsAsReportedAsync(IEnumerable<string> ids, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.PostAsJsonAsync("/logs/mark-reported", new { ids }, cancellationToken);
+        var requestedIds = ids.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList();
+        var response = await _httpClient.PostAsJsonAsync("/logs/mark-reported", new { ids = requestedIds }, cancellationToken);
 
         response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<MarkLogsReportedResponseDto>(cancellationToken: cancellationToken);
+
+        if (result?.Success != true || result.UpdatedCount != requestedIds.Count)
+            throw new InvalidOperationException($"WhatsAppGateway solo confirmó el marcado de {result?.UpdatedCount ?? 0} de {requestedIds.Count} logs.");
     }
 
     public async Task SendSupportEmailAsync(string subject, string text, CancellationToken cancellationToken)
@@ -170,7 +181,7 @@ public class WhatsAppService
         response.EnsureSuccessStatusCode();
     }
 
-    public async Task SendReplyAsync(ReplyMessageDto reply)
+    public async Task<string> SendReplyAsync(ReplyMessageDto reply, CancellationToken cancellationToken = default)
     {
         var request = new
         {
@@ -180,8 +191,14 @@ public class WhatsAppService
             text = reply.Text
         };
 
-        var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request);
+        var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request, cancellationToken);
 
         response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<WhatsAppSendResponseDto>(cancellationToken: cancellationToken);
+
+        if (result?.Success != true || result.Confirmed != true || string.IsNullOrWhiteSpace(result.MessageId))
+            throw new InvalidOperationException("WhatsAppGateway no confirmó el envío de la respuesta pendiente.");
+
+        return result.MessageId;
     }
 }

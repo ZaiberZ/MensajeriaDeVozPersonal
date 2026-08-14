@@ -43,3 +43,24 @@ public class GatewayLogsResponseDto
     [JsonPropertyName("logs")]
     public List<GatewayLogDto> Logs { get; set; } = [];
 }
+
+public class WhatsAppSendResponseDto
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("confirmed")]
+    public bool Confirmed { get; set; }
+
+    [JsonPropertyName("messageId")]
+    public string MessageId { get; set; } = "";
+}
+
+public class MarkLogsReportedResponseDto
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("updatedCount")]
+    public int UpdatedCount { get; set; }
+}

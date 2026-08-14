@@ -238,9 +238,14 @@ public class WhatsAppMessageProcessor
         }
     }
 
-    public Task SendReplyAsync(ReplyMessageDto reply)
+    public Task<string> SendReplyAsync(ReplyMessageDto reply, CancellationToken stoppingToken)
     {
-        return _whatsApp.SendReplyAsync(reply);
+        return _whatsApp.SendReplyAsync(reply, stoppingToken);
+    }
+
+    public Task<bool> IsConnectedAsync(CancellationToken stoppingToken)
+    {
+        return _whatsApp.IsConnectedAsync(stoppingToken);
     }
 
     private static MessageDto CreateFirebaseMessage(WhatsAppIncomingMessageDto message, bool isRead = false)

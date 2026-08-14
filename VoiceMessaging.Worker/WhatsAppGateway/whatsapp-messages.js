@@ -572,8 +572,8 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
             throw new Error("WhatsApp no está conectado.");
 
         if (chatId) {
-            await client.sendMessage(chatId, text);
-            return;
+            const sentMessage = await client.sendMessage(chatId, text);
+            return { messageId: sentMessage?.id?._serialized || "" };
         }
 
         phone = phone.replace(/\D/g, "");
@@ -582,7 +582,8 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         if (!numberId)
             throw new Error(`El número ${phone} no existe en WhatsApp.`);
 
-        await client.sendMessage(numberId._serialized, text);
+        const sentMessage = await client.sendMessage(numberId._serialized, text);
+        return { messageId: sentMessage?.id?._serialized || "" };
     }
 
     /**
@@ -595,8 +596,12 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
     async function sendMessage(chatId, phone, text) {
         for (let attempt = 1; attempt <= sendMaxAttempts; attempt++) {
             try {
-                await sendMessageOnce(chatId, phone, text);
-                return;
+                const confirmation = await sendMessageOnce(chatId, phone, text);
+
+                if (!confirmation.messageId)
+                    throw new Error("WhatsApp Web no devolvió un identificador que confirme el envío.");
+
+                return confirmation;
             } catch (error) {
                 const transientError = isTransientBrowserError(error);
 

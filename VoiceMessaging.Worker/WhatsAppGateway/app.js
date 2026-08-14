@@ -682,7 +682,7 @@ app.get("/logs/unreported-errors", (req, res) => {
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 100;
     const result = logger.getUnreportedErrorLogs(limit);
 
-    res.json({ file: logger.logFilePath, count: result.count, logs: result.logs });
+    res.json({ file: logger.logFilePath, count: result.count, allIds: result.allIds, logs: result.logs });
 });
 
 app.post("/logs", (req, res) => {
@@ -727,9 +727,9 @@ app.post("/whatsapp/send", async (req, res) => {
     try {
         const { chatId, phone, text } = req.body;
 
-        await whatsapp.sendMessage(chatId, phone, text);
+        const confirmation = await whatsapp.sendMessage(chatId, phone, text);
 
-        res.json({ success: true });
+        res.json({ success: true, confirmed: true, messageId: confirmation.messageId });
     } catch (error) {
         console.error(error);
         res.status(500).json({ success: false, error: error.message });

@@ -41,6 +41,8 @@ public class PendingReplyProcessor
                     {
                         _logger.LogWarning("AirbnbEmail replies are not supported yet.");
                         await _registerWorkerLog("warning", "AirbnbEmail replies are not supported yet.", null, stoppingToken);
+                        allRepliesProcessed = false;
+                        continue;
                     }
                     else if (string.Equals(reply.Source, "Airbnb", StringComparison.OrdinalIgnoreCase))
                     {
@@ -56,15 +58,29 @@ public class PendingReplyProcessor
                     }
                     else
                     {
-                        await _whatsAppProcessor.SendReplyAsync(reply);
+                        // No se toca este pendiente mientras WhatsApp no esté listo.
+                        if (!await _whatsAppProcessor.IsConnectedAsync(stoppingToken))
+                        {
+                            allRepliesProcessed = false;
+                            _logger.LogDebug("La respuesta pendiente {replyId} esperará a que WhatsApp esté conectado.", reply.Id);
+                            continue;
+                        }
+
+                        // Firebase conserva la respuesta hasta que el gateway devuelve el id real del mensaje.
+                        var confirmationId = await _whatsAppProcessor.SendReplyAsync(reply, stoppingToken);
                         sent = true;
+                        _logger.LogInformation("WhatsApp confirmó la respuesta pendiente {replyId} con el mensaje {messageId}.", reply.Id, confirmationId);
                     }
 
-                    if (sent)
-                        await _firebase.RegisterLastSentMessageAsync(reply, AppClock.Now, stoppingToken);
+                    if (!sent)
+                    {
+                        allRepliesProcessed = false;
+                        continue;
+                    }
 
+                    await _firebase.RegisterLastSentMessageAsync(reply, AppClock.Now, stoppingToken);
                     await _firebase.DeleteReplyAsync(reply.Id);
-                    _logger.LogInformation("Respuesta procesada y eliminada de Firebase: {sender} - {text}", reply.Sender, reply.Text);
+                    _logger.LogInformation("Respuesta confirmada y eliminada de pendientes en Firebase: {sender} - {text}", reply.Sender, reply.Text);
                 }
                 catch (Exception ex)
                 {

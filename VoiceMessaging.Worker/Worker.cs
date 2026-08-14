@@ -21,7 +21,6 @@ public class Worker : BackgroundService
     private static readonly TimeSpan InternetConnectionRetryInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan InternetConnectionWarningDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ErrorLogReportInterval = TimeSpan.FromDays(1);
-    private static readonly TimeSpan StartupErrorLogReportInterval = TimeSpan.FromHours(2);
     private static readonly TimeSpan ErrorLogReportCheckInterval = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan FirebaseErrorLogSyncInterval = TimeSpan.FromMinutes(30);
     private const int ErrorLogReportLimit = 10;
@@ -97,7 +96,7 @@ public class Worker : BackgroundService
         var pendingReplyProcessor = new PendingReplyProcessor(whatsAppProcessor, airbnbProcessor, firebase, _logger, RegisterWorkerLogAsync);
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
         await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
-        await ReportUnreportedErrorLogsAsync(whatsApp, firebase, StartupErrorLogReportInterval, stoppingToken);
+        await ReportUnreportedErrorLogsAsync(whatsApp, firebase, ErrorLogReportInterval, stoppingToken);
         await RegisterWorkerStartedAtAsync(stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
         var whatsAppConnected = await whatsApp.IsConnectedAsync(stoppingToken);
@@ -383,6 +382,13 @@ public class Worker : BackgroundService
             if (!hasSupportDestination)
                 return;
 
+            // El reporte queda pendiente hasta que WhatsApp esté listo para confirmar el envío.
+            if (!string.IsNullOrWhiteSpace(_user.SupportPhone) && !await whatsApp.IsConnectedAsync(stoppingToken))
+            {
+                _logger.LogDebug("El reporte diario de errores esperará a que WhatsApp esté conectado.");
+                return;
+            }
+
             var now = DateTime.UtcNow;
             var lastReportAt = _lastErrorLogReportAt;
 
@@ -440,11 +446,15 @@ public class Worker : BackgroundService
                 }
             }
 
-            if (!reportSent && !string.IsNullOrWhiteSpace(_user.SupportPhone) && await whatsApp.IsConnectedAsync(stoppingToken))
+            if (!reportSent && !string.IsNullOrWhiteSpace(_user.SupportPhone))
             {
-                await whatsApp.SendMessageAsync(_user.SupportPhone, report, stoppingToken);
+                // Se vuelve a comprobar justo antes de enviar para evitar consumir el intento si la sesión cambió.
+                if (!await whatsApp.IsConnectedAsync(stoppingToken))
+                    return;
+
+                var confirmationId = await whatsApp.SendMessageAsync(_user.SupportPhone, report, stoppingToken);
                 reportSent = true;
-                _logger.LogInformation("Reporte diario de errores enviado al telefono de soporte.");
+                _logger.LogInformation("Reporte diario de errores confirmado por WhatsApp con el identificador {messageId}.", confirmationId);
             }
 
             if (!reportSent)
