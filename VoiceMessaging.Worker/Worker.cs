@@ -33,6 +33,7 @@ public class Worker : BackgroundService
     private static readonly string GatewayDirectory = Path.Combine(AppContext.BaseDirectory, "WhatsAppGateway");
     private static readonly string DataRoot = Environment.GetEnvironmentVariable("VOICE_MESSAGING_DATA_DIR") ?? Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
     private static readonly string FirebaseLogSyncMarkerPath = Path.Combine(DataRoot, "VoiceMessaging", "firebase-error-log-sync-date.txt");
+    private static readonly string ErrorLogReportMarkerPath = Path.Combine(DataRoot, "VoiceMessaging", "last-error-log-report-at.txt");
     private readonly string sourceName = "Voice Messaging Worker";
     private readonly string logName = "Application";
     private readonly EventLog eventLog;
@@ -408,6 +409,10 @@ public class Worker : BackgroundService
             var now = DateTime.UtcNow;
             var today = AppClock.Now.Date;
             var lastReportAt = _lastErrorLogReportAt;
+            var localLastReportAt = await GetLocalLastErrorLogReportAtAsync(stoppingToken);
+
+            if (localLastReportAt.HasValue && (!lastReportAt.HasValue || localLastReportAt.Value > lastReportAt.Value))
+                lastReportAt = localLastReportAt;
 
             try
             {
@@ -432,7 +437,7 @@ public class Worker : BackgroundService
                 return;
             }
 
-            var logsResponse = await whatsApp.GetUnreportedErrorLogsAsync(ErrorLogReportLimit, stoppingToken);
+            var logsResponse = await whatsApp.GetUnreportedErrorLogsAsync(ErrorLogReportLimit, lastReportAt, stoppingToken);
             var failedConversations = await whatsApp.GetFailedConversationsAsync(stoppingToken);
 
             if (logsResponse.Logs.Count == 0 && failedConversations.NewCount == 0)
@@ -490,10 +495,21 @@ public class Worker : BackgroundService
             if (!reportSent)
                 throw new InvalidOperationException("No fue posible enviar el reporte por correo ni por WhatsApp.", emailError);
 
-            if (logIds.Count > 0)
-                await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
-
+            // El marcador local se guarda inmediatamente tras la confirmación para impedir duplicados después de un reinicio.
             _lastErrorLogReportAt = now;
+            await SaveLocalLastErrorLogReportAtAsync(now, stoppingToken);
+
+            if (logIds.Count > 0)
+            {
+                try
+                {
+                    await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "El reporte fue enviado, pero no se pudieron marcar todos los logs. El cursor local evitará repetirlos.");
+                }
+            }
 
             try
             {
@@ -521,6 +537,32 @@ public class Worker : BackgroundService
             await SaveErrorLogReportStatusAsync(firebase, "failed", ex.Message, stoppingToken);
             await RegisterWorkerLogAsync("error", "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.", ex.ToString(), stoppingToken);
         }
+    }
+
+    private static async Task<DateTime?> GetLocalLastErrorLogReportAtAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            if (!File.Exists(ErrorLogReportMarkerPath))
+                return null;
+
+            var value = await File.ReadAllTextAsync(ErrorLogReportMarkerPath, stoppingToken);
+            return DateTime.TryParse(value, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed) ? parsed.ToUniversalTime() : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task SaveLocalLastErrorLogReportAtAsync(DateTime reportedAt, CancellationToken stoppingToken)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(ErrorLogReportMarkerPath)!);
+        await File.WriteAllTextAsync(ErrorLogReportMarkerPath, reportedAt.ToUniversalTime().ToString("O"), stoppingToken);
     }
 
     private async Task SaveErrorLogReportStatusAsync(FirebaseService firebase, string outcome, string reason, CancellationToken stoppingToken, DateTime? lastReportAt = null, int? unreportedErrorCount = null)

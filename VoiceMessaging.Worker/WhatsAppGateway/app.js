@@ -681,7 +681,7 @@ app.get("/logs", (req, res) => {
 app.get("/logs/unreported-errors", (req, res) => {
     const requestedLimit = Number.parseInt(req.query.limit, 10);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 100;
-    const result = logger.getUnreportedErrorLogs(limit);
+    const result = logger.getUnreportedErrorLogs(limit, req.query.since);
 
     res.json({ file: logger.logFilePath, count: result.count, allIds: result.allIds, logs: result.logs });
 });

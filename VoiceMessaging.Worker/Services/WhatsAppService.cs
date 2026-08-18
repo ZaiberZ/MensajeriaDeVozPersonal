@@ -142,9 +142,10 @@ public class WhatsAppService
         response.EnsureSuccessStatusCode();
     }
 
-    public async Task<GatewayLogsResponseDto> GetUnreportedErrorLogsAsync(int limit, CancellationToken cancellationToken)
+    public async Task<GatewayLogsResponseDto> GetUnreportedErrorLogsAsync(int limit, DateTime? since, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.GetAsync($"/logs/unreported-errors?limit={limit}", cancellationToken);
+        var sinceQuery = since.HasValue ? $"&since={Uri.EscapeDataString(since.Value.ToUniversalTime().ToString("O"))}" : "";
+        var response = await _httpClient.GetAsync($"/logs/unreported-errors?limit={limit}{sinceQuery}", cancellationToken);
 
         response.EnsureSuccessStatusCode();
 

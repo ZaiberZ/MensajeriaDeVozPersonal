@@ -228,10 +228,20 @@ function getLogs(level, limit = 200) {
     return filteredLogs.slice(-limit).reverse();
 }
 
-function getUnreportedErrorLogs(limit = 100) {
+function getUnreportedErrorLogs(limit = 100, since = null) {
     const logs = readLogs();
     const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), MAX_LOG_ENTRIES) : 100;
-    const unreportedLogs = logs.filter(log => log.level === "error" && !log.reportedAt);
+    const sinceTimestamp = since ? Date.parse(since) : Number.NaN;
+    const unreportedLogs = logs.filter(log => {
+        if (log.level !== "error" || log.reportedAt)
+            return false;
+
+        if (!Number.isFinite(sinceTimestamp))
+            return true;
+
+        const occurrenceTimestamp = Date.parse(log.lastAttemptAt || log.timestamp || "");
+        return Number.isFinite(occurrenceTimestamp) && occurrenceTimestamp > sinceTimestamp;
+    });
     const latestLogs = unreportedLogs.slice(-safeLimit).reverse();
 
     return {

@@ -2,8 +2,13 @@
   #define InstallerOutputDir "D:\Publish"
 #endif
 
-#ifndef InstallerSource
-  #define InstallerSource "D:\Publish\VoiceMessaging\*"
+#ifndef InstallerSourceDir
+  #ifdef InstallerSource
+    ; Compatibilidad con scripts existentes que envían InstallerSource terminado en \*.
+    #define InstallerSourceDir ExtractFileDir(InstallerSource)
+  #else
+    #define InstallerSourceDir "D:\Publish\VoiceMessaging"
+  #endif
 #endif
 
 #ifndef EnvironmentFile
@@ -17,12 +22,24 @@ DefaultDirName={autopf}\VoiceMessaging
 DefaultGroupName=Voice Messaging
 OutputDir={#InstallerOutputDir}
 OutputBaseFilename=VoiceMessagingInstaller
-Compression=lzma
-SolidCompression=yes
+; La compresión no sólida permite saltar binarios iguales sin descomprimir
+; todo el bloque anterior. El modo rápido prioriza reinstalaciones ágiles.
+Compression=lzma2/fast
+SolidCompression=no
 PrivilegesRequired=admin
 
 [Files]
-Source: "{#InstallerSource}"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+; Los binarios versionados se conservan cuando versión y contenido coinciden.
+; Se excluye el Gateway para no empaquetar accidentalmente node_modules o Chrome.
+Source: "{#InstallerSourceDir}\*.dll"; DestDir: "{app}"; Excludes: "\WhatsAppGateway\*"; Flags: recursesubdirs replacesameversion
+Source: "{#InstallerSourceDir}\*.exe"; DestDir: "{app}"; Excludes: "\WhatsAppGateway\*"; Flags: recursesubdirs replacesameversion
+
+; Archivos .NET sin versión, como deps.json y runtimeconfig.json.
+Source: "{#InstallerSourceDir}\*"; DestDir: "{app}"; Excludes: "*.dll,*.exe,\WhatsAppGateway\*"; Flags: recursesubdirs ignoreversion
+
+; El código y los recursos del Gateway siempre se actualizan, pero sus
+; dependencias y el navegador descargado se conservan entre reinstalaciones.
+Source: "{#InstallerSourceDir}\WhatsAppGateway\*"; DestDir: "{app}\WhatsAppGateway"; Excludes: "\node_modules\*,\.cache\*,\.wwebjs_cache\*"; Flags: recursesubdirs ignoreversion
 Source: "AlexaWhatsApp.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Install Gateway Dependencies.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#EnvironmentFile}"; DestDir: "{commonappdata}\VoiceMessaging"; DestName: "environment.env"; Flags: ignoreversion
