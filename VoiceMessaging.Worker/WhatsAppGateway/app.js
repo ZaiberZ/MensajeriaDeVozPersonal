@@ -7,6 +7,7 @@ const { firebaseBaseUrl, firebaseFetch } = require("./firebase-client");
 
 const logger = require("./logger");
 logger.installConsoleCapture();
+const failedConversations = require("./failed-conversations");
 
 const whatsapp = require("./whatsapp");
 const gmail = require("./gmail");
@@ -759,6 +760,22 @@ app.get("/whatsapp/unread-messages", async (req, res) => {
         console.error(error);
         res.status(500).json({ success: false, error: error.message });
     }
+});
+
+app.get("/failed-conversations", (req, res) => {
+    res.json(failedConversations.getSummary());
+});
+
+app.post("/failed-conversations/sync", (req, res) => {
+    try {
+        res.json({ success: true, ...failedConversations.sync(req.body?.traces) });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+});
+
+app.post("/failed-conversations/acknowledge", (req, res) => {
+    res.json({ success: true, updatedCount: failedConversations.acknowledge() });
 });
 
 app.post("/gmail/send-support-report", async (req, res) => {

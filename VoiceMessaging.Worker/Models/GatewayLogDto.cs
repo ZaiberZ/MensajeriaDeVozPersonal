@@ -64,3 +64,42 @@ public class MarkLogsReportedResponseDto
     [JsonPropertyName("updatedCount")]
     public int UpdatedCount { get; set; }
 }
+
+public class FailedConversationDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("recipient")]
+    public string Recipient { get; set; } = "";
+
+    [JsonPropertyName("operation")]
+    public string Operation { get; set; } = "";
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset StartedAt { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "";
+
+    [JsonPropertyName("turns")]
+    public List<string> Turns { get; set; } = [];
+
+    [JsonPropertyName("isNew")]
+    public bool IsNew { get; set; }
+}
+
+public class FailedConversationsResponseDto
+{
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
+
+    [JsonPropertyName("newCount")]
+    public int NewCount { get; set; }
+
+    [JsonPropertyName("conversations")]
+    public List<FailedConversationDto> Conversations { get; set; } = [];
+}

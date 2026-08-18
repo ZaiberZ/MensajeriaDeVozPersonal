@@ -162,6 +162,19 @@ public class WhatsAppService
             ?? new GatewayLogsResponseDto();
     }
 
+    public async Task<FailedConversationsResponseDto> GetFailedConversationsAsync(CancellationToken cancellationToken)
+    {
+        return await _httpClient.GetFromJsonAsync<FailedConversationsResponseDto>("/failed-conversations", cancellationToken)
+            ?? new FailedConversationsResponseDto();
+    }
+
+    public async Task SyncFailedConversationsAsync(IEnumerable<object> traces, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/failed-conversations/sync", new { traces }, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task MarkLogsAsReportedAsync(IEnumerable<string> ids, CancellationToken cancellationToken)
     {
         var requestedIds = ids.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList();

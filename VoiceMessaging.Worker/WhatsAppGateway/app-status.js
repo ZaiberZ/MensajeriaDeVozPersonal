@@ -241,6 +241,55 @@ const renderErrorLogs = logs => {
     }
 };
 
+const renderFailedConversations = result => {
+    const conversations = Array.isArray(result?.conversations) ? result.conversations : [];
+    const section = document.getElementById("failedConversationsSection");
+    const card = document.getElementById("failedConversationsCard");
+    const list = document.getElementById("failedConversationsList");
+    const newCount = Number(result?.newCount || 0);
+
+    card.hidden = conversations.length === 0;
+    section.hidden = conversations.length === 0;
+    list.replaceChildren();
+
+    if (conversations.length === 0)
+        return;
+
+    setStatus("failedConversationsStatus", newCount > 0 ? "bad" : "warn",
+        newCount > 0 ? `${newCount} nueva(s), ${conversations.length} pendiente(s)` : `${conversations.length} pendiente(s)`);
+    document.getElementById("failedConversationsSummary").textContent = newCount > 0
+        ? `Hay ${newCount} conversación(es) con error nueva(s). Permanecerán aquí hasta confirmar el envío.`
+        : `Hay ${conversations.length} conversación(es) que todavía no tienen envío confirmado.`;
+
+    for (const conversation of conversations) {
+        const entry = document.createElement("li");
+        entry.className = "log-entry";
+        const operation = conversation.operation === "new_message" ? "Mensaje nuevo" : "Respuesta";
+        const meta = document.createElement("div");
+        meta.className = "log-meta";
+        meta.textContent = `${formatLogDate(conversation.updatedAt || conversation.startedAt)} - ${operation}`;
+        const message = document.createElement("p");
+        message.className = "log-message";
+        const recipient = conversation.recipient ? ` para ${conversation.recipient}` : "";
+        message.textContent = `Conversación de Alexa${recipient}. Seguimiento disponible en Firebase.`;
+        entry.append(meta, message);
+        list.append(entry);
+    }
+};
+
+async function refreshFailedConversations() {
+    try {
+        const response = await fetch("/failed-conversations", { cache: "no-store" });
+
+        if (!response.ok)
+            throw new Error("HTTP " + response.status);
+
+        renderFailedConversations(await response.json());
+    } catch (error) {
+        console.error("No fue posible consultar las conversaciones con error:", error);
+    }
+}
+
 async function refreshErrorLogs() {
     try {
         const response = await fetch("/logs?level=error,warning&limit=10", { cache: "no-store" });
@@ -297,6 +346,7 @@ async function refreshStatus() {
             : "Sin lecturas exitosas registradas";
         document.getElementById("detail").textContent = `Último reporte del Worker: ${heartbeat}. Última lectura de WhatsApp: ${lastRead}.`;
         document.getElementById("updated").textContent = "Actualizado: " + new Date().toLocaleTimeString();
+        await refreshFailedConversations();
         await refreshErrorLogs();
     } catch (error) {
         setWhatsAppActions({ connected: false });
@@ -306,6 +356,25 @@ async function refreshStatus() {
 
 document.getElementById("viewAllLogsButton").addEventListener("click", () => {
     window.open("/logs?limit=1000", "_blank", "noopener");
+});
+
+document.getElementById("acknowledgeFailedConversationsButton").addEventListener("click", async () => {
+    const button = document.getElementById("acknowledgeFailedConversationsButton");
+    button.disabled = true;
+
+    try {
+        const response = await fetch("/failed-conversations/acknowledge", { method: "POST" });
+
+        if (!response.ok)
+            throw new Error("HTTP " + response.status);
+
+        showActionMessage("Los avisos de conversaciones con error fueron marcados como revisados.", "success");
+        await refreshFailedConversations();
+    } catch (error) {
+        showActionMessage("No fue posible marcar los avisos: " + error.message, "error");
+    } finally {
+        button.disabled = false;
+    }
 });
 
 document.getElementById("favoriteSyncButton").addEventListener("click", async () => {

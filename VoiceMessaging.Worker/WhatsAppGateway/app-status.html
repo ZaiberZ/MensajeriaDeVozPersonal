@@ -47,6 +47,8 @@
         .log-detail-container[hidden] { display: none; }
         .log-detail-copy { margin: 0 0 8px; background: #2673dd; }
         .log-detail { max-height: 320px; margin: 0; padding: 12px; overflow: auto; border: 1px solid #2b3945; border-radius: 6px; background: #0b1015; color: #c9d3dc; font: 12px/1.45 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .conversation-warning { border-color: #9a6624; background: #2b2114; }
+        .conversation-warning h2 { color: #ffd38a; }
     </style>
 </head>
 <body>
@@ -64,6 +66,7 @@
         <article id="gmailCard" class="card" hidden><div class="label">Gmail / Airbnb Email</div><div id="gmailSession" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article id="userPhoneCard" class="card"><div class="label">Teléfono del usuario</div><div id="userPhone" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
         <article class="card"><div class="label">Mensajes por leer en Alexa</div><div id="alexa" class="value"><span class="dot"></span><span>Consultando...</span></div></article>
+        <article id="failedConversationsCard" class="card" hidden><div class="label">Conversaciones con error</div><div id="failedConversationsStatus" class="value warn"><span class="dot"></span><span>Consultando...</span></div></article>
     </section>
     <section class="action-groups" aria-label="Acciones">
         <section class="action-group">
@@ -105,6 +108,12 @@
     </section>
     <p id="actionMessage" role="status" aria-live="polite" hidden></p>
     <p id="detail"></p>
+    <section id="failedConversationsSection" class="card logs conversation-warning" hidden>
+        <h2>Conversaciones de Alexa con error de envío</h2>
+        <p id="failedConversationsSummary" class="subtitle"></p>
+        <ol id="failedConversationsList" class="log-list"></ol>
+        <button id="acknowledgeFailedConversationsButton" type="button">Marcar avisos como revisados</button>
+    </section>
     <section id="errorLogsSection" class="card logs" hidden>
         <h2>Últimos errores y advertencias</h2>
         <p class="subtitle">Los 10 registros más recientes con nivel error o warning del Gateway y del Worker.</p>

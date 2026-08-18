@@ -281,6 +281,18 @@ public class FirebaseService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<Dictionary<string, AlexaWriteTraceDto>> GetAlexaWriteTracesAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"{AlexaWriteTracesPath}.json", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return [];
+
+        return JsonSerializer.Deserialize<Dictionary<string, AlexaWriteTraceDto>>(json, _jsonOptions) ?? [];
+    }
+
     public async Task SaveDiagnosticLogAsync(DiagnosticLogDto log, CancellationToken cancellationToken = default)
     {
         var content = new StringContent(JsonSerializer.Serialize(log, _jsonOptions), Encoding.UTF8, "application/json");

@@ -23,6 +23,7 @@ public class Worker : BackgroundService
     private static readonly TimeSpan ErrorLogReportCheckInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan FirebaseErrorLogSyncInterval = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan AlexaWriteTraceCleanupInterval = TimeSpan.FromDays(1);
+    private static readonly TimeSpan FailedAlexaConversationSyncInterval = TimeSpan.FromHours(6);
     private const int ErrorLogReportLimit = 10;
     private const int FirebaseErrorLogSnapshotLimit = 10;
     private const int FirebaseErrorLogRetentionDays = 30;
@@ -98,6 +99,7 @@ public class Worker : BackgroundService
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
         await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
         await CleanupOldAlexaWriteTracesAsync(firebase, stoppingToken);
+        await SyncFailedAlexaConversationsAsync(whatsApp, firebase, stoppingToken);
         await ReportUnreportedErrorLogsAsync(whatsApp, firebase, stoppingToken);
         await RegisterWorkerStartedAtAsync(stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
@@ -113,6 +115,7 @@ public class Worker : BackgroundService
         var nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(initialFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
         var nextAirbnbCheckAt = DateTime.UtcNow;
         var nextErrorLogReportCheckAt = DateTime.UtcNow;
+        var nextFailedAlexaConversationSyncAt = DateTime.UtcNow.Add(FailedAlexaConversationSyncInterval);
         while (!stoppingToken.IsCancellationRequested)
         {
             if (!await IsGatewayRunningAsync(stoppingToken))
@@ -148,6 +151,12 @@ public class Worker : BackgroundService
                 await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
                 await CleanupOldAlexaWriteTracesAsync(firebase, stoppingToken);
                 await ReportUnreportedErrorLogsAsync(whatsApp, firebase, stoppingToken);
+            }
+
+            if (DateTime.UtcNow >= nextFailedAlexaConversationSyncAt)
+            {
+                nextFailedAlexaConversationSyncAt = DateTime.UtcNow.Add(FailedAlexaConversationSyncInterval);
+                await SyncFailedAlexaConversationsAsync(whatsApp, firebase, stoppingToken);
             }
 
             if (DateTime.UtcNow >= nextReadReconciliationAt)
@@ -424,22 +433,23 @@ public class Worker : BackgroundService
             }
 
             var logsResponse = await whatsApp.GetUnreportedErrorLogsAsync(ErrorLogReportLimit, stoppingToken);
+            var failedConversations = await whatsApp.GetFailedConversationsAsync(stoppingToken);
 
-            if (logsResponse.Logs.Count == 0)
+            if (logsResponse.Logs.Count == 0 && failedConversations.NewCount == 0)
             {
-                await SaveErrorLogReportStatusAsync(firebase, "no_unreported_errors", "El gateway no tiene errores pendientes de reporte.", stoppingToken, lastReportAt, logsResponse.Count);
+                await SaveErrorLogReportStatusAsync(firebase, "no_unreported_errors", "El gateway no tiene errores ni conversaciones nuevas con error de envío.", stoppingToken, lastReportAt, logsResponse.Count);
                 return;
             }
 
             var logIds = logsResponse.AllIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
 
-            if (logIds.Count == 0)
+            if (logsResponse.Logs.Count > 0 && logIds.Count == 0)
             {
                 await SaveErrorLogReportStatusAsync(firebase, "invalid_gateway_response", "El gateway devolvió errores sin identificadores para marcarlos.", stoppingToken, lastReportAt, logsResponse.Count);
                 return;
             }
 
-            var report = BuildErrorLogsReport(logsResponse);
+            var report = BuildErrorLogsReport(logsResponse, failedConversations);
             var reportSent = false;
             Exception? emailError = null;
 
@@ -480,7 +490,9 @@ public class Worker : BackgroundService
             if (!reportSent)
                 throw new InvalidOperationException("No fue posible enviar el reporte por correo ni por WhatsApp.", emailError);
 
-            await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
+            if (logIds.Count > 0)
+                await whatsApp.MarkLogsAsReportedAsync(logIds, stoppingToken);
+
             _lastErrorLogReportAt = now;
 
             try
@@ -496,8 +508,8 @@ public class Worker : BackgroundService
                 _logger.LogWarning(ex, "El reporte se envio, pero no fue posible guardar en Firebase su fecha de envio.");
             }
 
-            _logger.LogInformation("Logs de error marcados como reportados: {count}.", logIds.Count);
-            await SaveErrorLogReportStatusAsync(firebase, "sent", $"WhatsApp confirmó el reporte y se marcaron {logIds.Count} logs.", stoppingToken, now, logIds.Count);
+            _logger.LogInformation("Reporte diario confirmado: {logCount} logs y aviso de {conversationCount} conversaciones nuevas con error.", logIds.Count, failedConversations.NewCount);
+            await SaveErrorLogReportStatusAsync(firebase, "sent", $"Se confirmó el reporte de {logIds.Count} logs y el aviso de {failedConversations.NewCount} conversaciones nuevas con error.", stoppingToken, now, logIds.Count);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -558,6 +570,52 @@ public class Worker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "No fue posible eliminar los seguimientos de escritura de Alexa vencidos.");
+        }
+    }
+
+    private async Task SyncFailedAlexaConversationsAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
+    {
+        try
+        {
+            // Firebase es la fuente de verdad: sólo permanecen los dictados cuyo envío no fue confirmado.
+            var traces = await firebase.GetAlexaWriteTracesAsync(stoppingToken);
+            var pendingReplies = await firebase.GetPendingRepliesAsync();
+            var pendingByTraceId = pendingReplies
+                .Where(reply => !string.IsNullOrWhiteSpace(reply.AlexaWriteTraceId))
+                .GroupBy(reply => reply.AlexaWriteTraceId)
+                .ToDictionary(group => group.Key, group => group.First());
+            var localCopies = traces
+                .Where(item => !string.Equals(item.Value.Status, "queued_for_delivery", StringComparison.OrdinalIgnoreCase))
+                .Select(item =>
+            {
+                pendingByTraceId.TryGetValue(item.Key, out var pending);
+                var isNewMessage = pending != null
+                    ? string.IsNullOrWhiteSpace(pending.MessageId)
+                    : item.Value.Turns.Any(turn => turn.Contains("WriteContactMessageIntent", StringComparison.OrdinalIgnoreCase));
+
+                return (object)new
+                {
+                    id = item.Key,
+                    operation = isNewMessage ? "new_message" : "reply",
+                    recipient = pending?.Sender ?? "",
+                    item.Value.SessionId,
+                    item.Value.StartedAt,
+                    item.Value.UpdatedAt,
+                    item.Value.Status,
+                    item.Value.Turns
+                };
+            }).ToList();
+
+            await whatsApp.SyncFailedConversationsAsync(localCopies, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No fue posible sincronizar localmente los seguimientos de escritura pendientes de Alexa.");
+            await RegisterWorkerLogAsync("warning", "No fue posible sincronizar localmente los seguimientos de escritura pendientes de Alexa.", ex.ToString(), stoppingToken);
         }
     }
 
@@ -635,23 +693,29 @@ public class Worker : BackgroundService
         return value[..maxLength] + "...";
     }
 
-    private static string BuildErrorLogsReport(GatewayLogsResponseDto logsResponse)
+    private static string BuildErrorLogsReport(GatewayLogsResponseDto logsResponse, FailedConversationsResponseDto failedConversations)
     {
         var builder = new StringBuilder();
         var reportedCount = logsResponse.Logs.Count;
 
         builder.AppendLine("Reporte diario de errores de Voice Messaging.");
         builder.AppendLine($"Errores sin reportar: {logsResponse.Count}.");
+        if (failedConversations.NewCount > 0)
+            builder.AppendLine($"Aviso: hay {failedConversations.NewCount} conversaciones nuevas con error de envío. Revísalas en Firebase.");
 
         if (logsResponse.Count > reportedCount)
             builder.AppendLine($"Se muestran los ultimos {reportedCount}. Errores no incluidos en el mensaje: {logsResponse.Count - reportedCount}.");
 
-        builder.AppendLine();
-
-        foreach (var log in logsResponse.Logs)
+        if (logsResponse.Logs.Count > 0)
         {
-            var attemptText = log.AttemptCount > 1 ? $" ({log.AttemptCount} intentos)" : "";
-            builder.AppendLine($"- {FormatLogDate(log.LastAttemptAt == default ? log.Timestamp : log.LastAttemptAt)} [{log.Source}]{attemptText}: {CreateLogReportPreview(log.Message)}");
+            builder.AppendLine();
+            builder.AppendLine("Errores:");
+
+            foreach (var log in logsResponse.Logs)
+            {
+                var attemptText = log.AttemptCount > 1 ? $" ({log.AttemptCount} intentos)" : "";
+                builder.AppendLine($"- {FormatLogDate(log.LastAttemptAt == default ? log.Timestamp : log.LastAttemptAt)} [{log.Source}]{attemptText}: {CreateLogReportPreview(log.Message)}");
+            }
         }
 
         return builder.ToString().Trim();
