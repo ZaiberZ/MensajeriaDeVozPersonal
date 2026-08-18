@@ -89,6 +89,14 @@ public class FirebaseService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task SetErrorLogReportStatusAsync(object status, CancellationToken cancellationToken = default)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(status, _jsonOptions), Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{ControlPath}/error_log_report_status.json", content, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task SaveDailyErrorLogSnapshotAsync(DateTime date, DailyErrorLogSnapshotDto snapshot, CancellationToken cancellationToken = default)
     {
         var key = date.ToUniversalTime().ToString("yyyy-MM-dd");

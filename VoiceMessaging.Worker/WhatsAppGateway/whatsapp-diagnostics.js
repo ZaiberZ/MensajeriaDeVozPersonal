@@ -481,10 +481,13 @@ function createWhatsAppDiagnostics({ client, runtime }) {
             window.WWebJS.getChats = async () => {
                 const chats = window.require("WAWebCollections").Chat.getModelsArray();
                 const results = await Promise.all(chats.map(async chat => {
+                    const chatId = chat?.id?._serialized || chat?.id?.toString?.() || "";
+
                     try {
-                        return { model: await window.WWebJS.getChatModel(chat), error: null };
+                        return { chatId, model: await window.WWebJS.getChatModel(chat), error: null };
                     } catch (error) {
                         return {
+                            chatId,
                             model: null,
                             error: {
                                 name: String(error?.name || error?.constructor?.name || "Error").slice(0, 100),
@@ -494,6 +497,9 @@ function createWhatsAppDiagnostics({ client, runtime }) {
                     }
                 }));
                 const failures = results.filter(result => result.error).map(result => result.error);
+                window.WWebJS.__voiceMessagingLastSkippedChatIds = results
+                    .filter(result => result.error && result.chatId)
+                    .map(result => result.chatId);
                 window.WWebJS.__voiceMessagingLastGetChatsFailures = {
                     count: failures.length,
                     errors: failures.slice(0, 5)
@@ -502,6 +508,7 @@ function createWhatsAppDiagnostics({ client, runtime }) {
                 return results.map(result => result.model).filter(Boolean);
             };
             window.WWebJS.__voiceMessagingSafeGetChats = true;
+            window.WWebJS.__voiceMessagingLastSkippedChatIds = [];
             window.WWebJS.__voiceMessagingLastGetChatsFailures = { count: 0, errors: [] };
             return true;
         });

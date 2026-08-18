@@ -32,6 +32,9 @@ public class WhatsAppMessageProcessor
 
             if (whatsAppUnreadMessages.Count == 0)
             {
+                var existingMessages = await _firebase.GetAllMessagesAsync();
+                var hasUnreadMessages = existingMessages.Any(message => !message.IsRead);
+                await _firebase.SetHasPendingMessagesAsync(hasUnreadMessages);
                 _logger.LogInformation("Reconciliación de lectura completada. WhatsApp no tiene mensajes pendientes.");
                 return true;
             }
@@ -84,8 +87,7 @@ public class WhatsAppMessageProcessor
                 }
             }
 
-            if (hasUnreadMessagesInFirebase)
-                await _firebase.SetHasPendingMessagesAsync(true);
+            await _firebase.SetHasPendingMessagesAsync(hasUnreadMessagesInFirebase);
 
             _logger.LogInformation(
                 "Reconciliación de lectura completada. Mensajes recuperados: {added}; mensajes de publicidad omitidos: {filtered}; chats marcados como leídos: {readChats}.",

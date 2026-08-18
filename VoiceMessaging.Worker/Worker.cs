@@ -20,8 +20,7 @@ public class Worker : BackgroundService
     private static readonly TimeSpan StartupReadinessCheckInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InternetConnectionRetryInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan InternetConnectionWarningDelay = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan ErrorLogReportInterval = TimeSpan.FromDays(1);
-    private static readonly TimeSpan ErrorLogReportCheckInterval = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan ErrorLogReportCheckInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan FirebaseErrorLogSyncInterval = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan AlexaWriteTraceCleanupInterval = TimeSpan.FromDays(1);
     private const int ErrorLogReportLimit = 10;
@@ -99,7 +98,7 @@ public class Worker : BackgroundService
         await WaitForInternetConnectionAsync(firebase, stoppingToken);
         await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
         await CleanupOldAlexaWriteTracesAsync(firebase, stoppingToken);
-        await ReportUnreportedErrorLogsAsync(whatsApp, firebase, ErrorLogReportInterval, stoppingToken);
+        await ReportUnreportedErrorLogsAsync(whatsApp, firebase, stoppingToken);
         await RegisterWorkerStartedAtAsync(stoppingToken);
         await ReportWorkerStatusAsync(whatsApp, firebase, stoppingToken);
         var whatsAppConnected = await whatsApp.IsConnectedAsync(stoppingToken);
@@ -148,7 +147,7 @@ public class Worker : BackgroundService
                 nextErrorLogReportCheckAt = DateTime.UtcNow.Add(ErrorLogReportCheckInterval);
                 await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
                 await CleanupOldAlexaWriteTracesAsync(firebase, stoppingToken);
-                await ReportUnreportedErrorLogsAsync(whatsApp, firebase, ErrorLogReportInterval, stoppingToken);
+                await ReportUnreportedErrorLogsAsync(whatsApp, firebase, stoppingToken);
             }
 
             if (DateTime.UtcNow >= nextReadReconciliationAt)
@@ -376,7 +375,7 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ReportUnreportedErrorLogsAsync(WhatsAppService whatsApp, FirebaseService firebase, TimeSpan minimumInterval, CancellationToken stoppingToken)
+    private async Task ReportUnreportedErrorLogsAsync(WhatsAppService whatsApp, FirebaseService firebase, CancellationToken stoppingToken)
     {
         try
         {
@@ -384,16 +383,21 @@ public class Worker : BackgroundService
                 SupportEmailReportsEnabled && !string.IsNullOrWhiteSpace(_user.SupportEmail);
 
             if (!hasSupportDestination)
+            {
+                await SaveErrorLogReportStatusAsync(firebase, "skipped_no_support_destination", "No hay teléfono de soporte configurado.", stoppingToken);
                 return;
+            }
 
             // El reporte queda pendiente hasta que WhatsApp esté listo para confirmar el envío.
             if (!string.IsNullOrWhiteSpace(_user.SupportPhone) && !await whatsApp.IsConnectedAsync(stoppingToken))
             {
                 _logger.LogDebug("El reporte diario de errores esperará a que WhatsApp esté conectado.");
+                await SaveErrorLogReportStatusAsync(firebase, "waiting_for_whatsapp", "WhatsApp todavía no está listo para enviar el reporte.", stoppingToken);
                 return;
             }
 
             var now = DateTime.UtcNow;
+            var today = AppClock.Now.Date;
             var lastReportAt = _lastErrorLogReportAt;
 
             try
@@ -413,18 +417,27 @@ public class Worker : BackgroundService
                 _logger.LogWarning(ex, "No fue posible consultar en Firebase la fecha del ultimo reporte de errores; se usara el estado local.");
             }
 
-            if (lastReportAt.HasValue && now - lastReportAt.Value.ToUniversalTime() < minimumInterval)
+            if (lastReportAt.HasValue && AppClock.ToLocalTime(lastReportAt.Value).Date == today)
+            {
+                await SaveErrorLogReportStatusAsync(firebase, "already_reported_today", $"El último reporte confirmado fue {lastReportAt.Value:O}.", stoppingToken, lastReportAt);
                 return;
+            }
 
             var logsResponse = await whatsApp.GetUnreportedErrorLogsAsync(ErrorLogReportLimit, stoppingToken);
 
             if (logsResponse.Logs.Count == 0)
+            {
+                await SaveErrorLogReportStatusAsync(firebase, "no_unreported_errors", "El gateway no tiene errores pendientes de reporte.", stoppingToken, lastReportAt, logsResponse.Count);
                 return;
+            }
 
             var logIds = logsResponse.AllIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
 
             if (logIds.Count == 0)
+            {
+                await SaveErrorLogReportStatusAsync(firebase, "invalid_gateway_response", "El gateway devolvió errores sin identificadores para marcarlos.", stoppingToken, lastReportAt, logsResponse.Count);
                 return;
+            }
 
             var report = BuildErrorLogsReport(logsResponse);
             var reportSent = false;
@@ -454,7 +467,10 @@ public class Worker : BackgroundService
             {
                 // Se vuelve a comprobar justo antes de enviar para evitar consumir el intento si la sesión cambió.
                 if (!await whatsApp.IsConnectedAsync(stoppingToken))
+                {
+                    await SaveErrorLogReportStatusAsync(firebase, "waiting_for_whatsapp", "WhatsApp se desconectó antes del envío.", stoppingToken, lastReportAt, logsResponse.Count);
                     return;
+                }
 
                 var confirmationId = await whatsApp.SendMessageAsync(_user.SupportPhone, report, stoppingToken);
                 reportSent = true;
@@ -481,6 +497,7 @@ public class Worker : BackgroundService
             }
 
             _logger.LogInformation("Logs de error marcados como reportados: {count}.", logIds.Count);
+            await SaveErrorLogReportStatusAsync(firebase, "sent", $"WhatsApp confirmó el reporte y se marcaron {logIds.Count} logs.", stoppingToken, now, logIds.Count);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -489,7 +506,32 @@ public class Worker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.");
+            await SaveErrorLogReportStatusAsync(firebase, "failed", ex.Message, stoppingToken);
             await RegisterWorkerLogAsync("error", "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.", ex.ToString(), stoppingToken);
+        }
+    }
+
+    private async Task SaveErrorLogReportStatusAsync(FirebaseService firebase, string outcome, string reason, CancellationToken stoppingToken, DateTime? lastReportAt = null, int? unreportedErrorCount = null)
+    {
+        try
+        {
+            await firebase.SetErrorLogReportStatusAsync(new
+            {
+                checkedAt = AppClock.Now,
+                outcome,
+                reason,
+                supportPhoneConfigured = !string.IsNullOrWhiteSpace(_user.SupportPhone),
+                lastReportAt,
+                unreportedErrorCount
+            }, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo guardar en Firebase el diagnóstico del reporte diario de errores.");
         }
     }
 

@@ -223,6 +223,77 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
             }
         }
 
+        // getChats puede omitir modelos dañados por IndexedDB. Se recuperan sus
+        // mensajes no leídos desde el Store crudo sin volver a serializar el chat.
+        const skippedUnreadMessages = await fetchUnreadMessagesFromSkippedRawChats();
+        const recoveredKeys = new Set(unreadMessages.map(message => `${message.chatId}:${message.id}`));
+
+        for (const message of skippedUnreadMessages) {
+            const messageKey = `${message.chatId}:${message.id}`;
+
+            if (!recoveredKeys.has(messageKey)) {
+                recoveredKeys.add(messageKey);
+                unreadMessages.push(message);
+            }
+        }
+
+        if (skippedUnreadMessages.length > 0) {
+            const fallbackMessage = `${skippedUnreadMessages.length} mensaje(s) no leído(s) recuperado(s) desde chats omitidos por IndexedDB.`;
+            console.log(fallbackMessage);
+            logger.addLog("info", fallbackMessage, "WhatsAppGateway");
+        }
+
+        return unreadMessages;
+    }
+
+    /**
+     * Recupera no leídos de chats que el wrapper tolerante no pudo serializar.
+     * @returns {Promise<IncomingWhatsAppMessage[]>}
+     */
+    async function fetchUnreadMessagesFromSkippedRawChats() {
+        if (!client.pupPage || client.pupPage.isClosed())
+            return [];
+
+        const browserMessages = await client.pupPage.evaluate(async () => {
+            const skippedChatIds = window.WWebJS?.__voiceMessagingLastSkippedChatIds || [];
+            const serializedMessages = [];
+
+            for (const chatId of skippedChatIds) {
+                try {
+                    const chatWid = window.require("WAWebWidFactory").createWid(chatId);
+                    const rawChat = window.require("WAWebCollections").Chat.get(chatWid);
+                    const unreadCount = Math.max(Number(rawChat?.unreadCount) || 0, 0);
+
+                    if (!rawChat?.msgs || unreadCount === 0)
+                        continue;
+
+                    const rawMessages = rawChat.msgs.getModelsArray().slice(-unreadCount);
+
+                    for (const rawMessage of rawMessages) {
+                        try {
+                            serializedMessages.push(await window.WWebJS.getMessageModel(rawMessage));
+                        } catch {
+                            // Un mensaje corrupto no debe bloquear los demás del chat.
+                        }
+                    }
+                } catch {
+                    // El chat seguirá pendiente para una recuperación posterior.
+                }
+            }
+
+            return serializedMessages;
+        }).catch(() => []);
+        const unreadMessages = [];
+
+        for (const model of browserMessages) {
+            const message = new Message(client, model);
+
+            if (!isSupportedIncomingMessage(message))
+                continue;
+
+            unreadMessages.push(await createIncomingMessage(message, message.from, true));
+        }
+
         return unreadMessages;
     }
 
