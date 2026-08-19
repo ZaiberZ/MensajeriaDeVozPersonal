@@ -37,6 +37,7 @@ const logger = require("./logger");
 function createWhatsAppDiagnostics({ client, runtime }) {
     const diagnosticLogIntervalMs = 30 * 60 * 1000;
     const skippedChatModelsLogIntervalMs = 6 * 60 * 60 * 1000;
+    const skippedChatModelsStartupGraceMs = 2 * 60 * 1000;
     const diagnosticCycleId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const maxDiagnosticEvents = 10;
     let diagnosticAttempt = 0;
@@ -521,6 +522,12 @@ function createWhatsAppDiagnostics({ client, runtime }) {
      */
     async function logSkippedChatModelsIfAny(context) {
         if (!client.pupPage || client.pupPage.isClosed())
+            return;
+
+        // La sesión puede anunciar CONNECTED antes de que IndexedDB termine de
+        // estabilizarse. El fallback sigue operando, pero ese estado transitorio
+        // no debe llenar el historial con advertencias de chats omitidos.
+        if (!runtime.connected || !runtime.readyAt || Date.now() - runtime.readyAt.getTime() < skippedChatModelsStartupGraceMs)
             return;
 
         const failures = await client.pupPage.evaluate(() =>

@@ -734,6 +734,47 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         return { promise, cancel: () => complete("") };
     }
 
+    async function recoverAcknowledgedMessageIdFromRawChat(chatId, text, sentAfterTimestamp) {
+        if (!client.pupPage || client.pupPage.isClosed())
+            return "";
+
+        return await client.pupPage.evaluate(async (targetChatId, targetText, minimumTimestamp) => {
+            try {
+                const chatWid = window.require("WAWebWidFactory").createWid(targetChatId);
+                const rawChat = window.require("WAWebCollections").Chat.get(chatWid);
+
+                if (!rawChat?.msgs)
+                    return "";
+
+                const rawMessages = rawChat.msgs.getModelsArray()
+                    .filter(message => message?.id?.fromMe && message?.body === targetText &&
+                        Number(message?.t || 0) >= minimumTimestamp && Number(message?.ack) >= 1)
+                    .sort((left, right) => Number(right.t || 0) - Number(left.t || 0));
+
+                for (const rawMessage of rawMessages) {
+                    const serializedId = rawMessage?.id?._serialized || rawMessage?.id?.id || "";
+
+                    if (serializedId)
+                        return serializedId;
+
+                    try {
+                        const model = await window.WWebJS.getMessageModel(rawMessage);
+                        const modelId = model?.id?._serialized || model?.id?.id || "";
+
+                        if (modelId)
+                            return modelId;
+                    } catch {
+                        // Se continúa con el siguiente candidato saliente.
+                    }
+                }
+            } catch {
+                // El chat aún no está disponible en el Store interno.
+            }
+
+            return "";
+        }, chatId, text, sentAfterTimestamp).catch(() => "");
+    }
+
     async function recoverAcknowledgedMessageId(chatId, text, sentAfterTimestamp) {
         // El historial sólo confirma mensajes que ya tienen ACK del servidor.
         for (let attempt = 1; attempt <= 3; attempt++) {
@@ -750,6 +791,11 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
             } catch (error) {
                 console.warn(`No fue posible verificar inmediatamente el mensaje enviado en el chat ${chatId}: ${error.message}`);
             }
+
+            const rawRecoveredId = await recoverAcknowledgedMessageIdFromRawChat(chatId, text, sentAfterTimestamp);
+
+            if (rawRecoveredId)
+                return rawRecoveredId;
 
             if (attempt < 3)
                 await new Promise(resolve => setTimeout(resolve, 1000));
