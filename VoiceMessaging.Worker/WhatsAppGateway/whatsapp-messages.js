@@ -1,5 +1,29 @@
+const crypto = require("crypto");
+const fs = require("fs");
 const logger = require("./logger");
+const os = require("os");
+const path = require("path");
 const { Message } = require("whatsapp-web.js");
+
+const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
+const uncertainOutgoingFilePath = path.join(dataRoot, "VoiceMessaging", "uncertain-outgoing-messages.json");
+
+function loadUncertainOutgoingMessages() {
+    try {
+        if (!fs.existsSync(uncertainOutgoingFilePath))
+            return new Map();
+
+        const items = JSON.parse(fs.readFileSync(uncertainOutgoingFilePath, "utf8"));
+        return new Map(Array.isArray(items) ? items.filter(item => Array.isArray(item) && item.length === 2) : []);
+    } catch {
+        return new Map();
+    }
+}
+
+function saveUncertainOutgoingMessages(items) {
+    fs.mkdirSync(path.dirname(uncertainOutgoingFilePath), { recursive: true });
+    fs.writeFileSync(uncertainOutgoingFilePath, JSON.stringify([...items.entries()], null, 2), "utf8");
+}
 
 /**
  * @typedef {Object} IncomingWhatsAppMessage
@@ -73,6 +97,22 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
     const functionalFailureThreshold = 3;
     let pendingMessages = [];
     const pendingMessageIds = new Set();
+    const uncertainOutgoingMessages = loadUncertainOutgoingMessages();
+
+    function createUncertainOutgoingKey(chatId, text) {
+        const textHash = crypto.createHash("sha256").update(text, "utf8").digest("hex");
+        return `${chatId}|${textHash}`;
+    }
+
+    function clearUncertainOutgoingMessage(key) {
+        if (uncertainOutgoingMessages.delete(key))
+            saveUncertainOutgoingMessages(uncertainOutgoingMessages);
+    }
+
+    function rememberUncertainOutgoingMessage(key, sentAfterTimestamp) {
+        uncertainOutgoingMessages.set(key, { sentAfterTimestamp });
+        saveUncertainOutgoingMessages(uncertainOutgoingMessages);
+    }
 
     function isChannelChatId(chatId) {
         return /@\w*newsletter\b/.test(chatId);
@@ -638,23 +678,161 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
             message.includes("whatsapp no está conectado");
     }
 
+    function getSerializedMessageId(message) {
+        if (typeof message?.id === "string")
+            return message.id;
+
+        return message?.id?._serialized || message?.id?.id || "";
+    }
+
+    function matchesOutgoingMessage(message, chatId, text, sentAfterTimestamp) {
+        const messageChatId = message?.to || message?.id?.remote || message?.id?._serialized?.split("_").pop() || "";
+        return message?.fromMe && message?.body === text && messageChatId === chatId &&
+            Number(message?.timestamp || 0) >= sentAfterTimestamp;
+    }
+
+    function waitForOutgoingMessageAck(chatId, text, sentAfterTimestamp, timeoutMs = 15000) {
+        let completed = false;
+        let timeout;
+        let resolvePromise;
+
+        const removeListener = (eventName, handler) => {
+            if (typeof client.off === "function")
+                client.off(eventName, handler);
+            else
+                client.removeListener(eventName, handler);
+        };
+
+        const complete = (messageId = "") => {
+            if (completed)
+                return;
+
+            completed = true;
+            clearTimeout(timeout);
+            removeListener("message_ack", onMessageAck);
+            removeListener("message_create", onMessageCreate);
+            resolvePromise(messageId);
+        };
+
+        const onMessageAck = (message, ack) => {
+            if (Number(ack) >= 1 && matchesOutgoingMessage(message, chatId, text, sentAfterTimestamp))
+                complete(getSerializedMessageId(message));
+        };
+
+        const onMessageCreate = message => {
+            if (Number(message?.ack) >= 1 && matchesOutgoingMessage(message, chatId, text, sentAfterTimestamp))
+                complete(getSerializedMessageId(message));
+        };
+
+        const promise = new Promise(resolve => {
+            resolvePromise = resolve;
+            client.on("message_ack", onMessageAck);
+            client.on("message_create", onMessageCreate);
+            timeout = setTimeout(() => complete(""), timeoutMs);
+        });
+
+        return { promise, cancel: () => complete("") };
+    }
+
+    async function recoverAcknowledgedMessageId(chatId, text, sentAfterTimestamp) {
+        // El historial sólo confirma mensajes que ya tienen ACK del servidor.
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const chat = await client.getChatById(chatId);
+                const messages = await chat.fetchMessages({ limit: 20 });
+                const match = messages
+                    .filter(message => Number(message?.ack) >= 1 && matchesOutgoingMessage(message, chatId, text, sentAfterTimestamp))
+                    .sort((left, right) => Number(right.timestamp || 0) - Number(left.timestamp || 0))[0];
+                const recoveredId = getSerializedMessageId(match);
+
+                if (recoveredId)
+                    return recoveredId;
+            } catch (error) {
+                console.warn(`No fue posible verificar inmediatamente el mensaje enviado en el chat ${chatId}: ${error.message}`);
+            }
+
+            if (attempt < 3)
+                await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        return "";
+    }
+
     async function sendMessageOnce(chatId, phone, text) {
         if (!runtime.connected)
             throw new Error("WhatsApp no está conectado.");
 
-        if (chatId) {
-            const sentMessage = await client.sendMessage(chatId, text);
-            return { messageId: sentMessage?.id?._serialized || "" };
+        let targetChatId = chatId;
+
+        if (!targetChatId) {
+            phone = phone.replace(/\D/g, "");
+            const numberId = await client.getNumberId(phone);
+
+            if (!numberId)
+                throw new Error(`El número ${phone} no existe en WhatsApp.`);
+
+            targetChatId = numberId._serialized;
         }
 
-        phone = phone.replace(/\D/g, "");
-        const numberId = await client.getNumberId(phone);
+        const uncertainKey = createUncertainOutgoingKey(targetChatId, text);
+        let previousUncertainSend = uncertainOutgoingMessages.get(uncertainKey);
 
-        if (!numberId)
-            throw new Error(`El número ${phone} no existe en WhatsApp.`);
+        if (previousUncertainSend && Number(previousUncertainSend.sentAfterTimestamp || 0) < Math.floor(Date.now() / 1000) - 15 * 24 * 60 * 60) {
+            clearUncertainOutgoingMessage(uncertainKey);
+            previousUncertainSend = null;
+        }
 
-        const sentMessage = await client.sendMessage(numberId._serialized, text);
-        return { messageId: sentMessage?.id?._serialized || "" };
+        if (previousUncertainSend) {
+            const recoveredMessageId = await recoverAcknowledgedMessageId(targetChatId, text, previousUncertainSend.sentAfterTimestamp);
+
+            if (recoveredMessageId) {
+                clearUncertainOutgoingMessage(uncertainKey);
+                return { messageId: recoveredMessageId };
+            }
+
+            throw new Error("El envío anterior continúa sin confirmación de WhatsApp. Se omite el reintento para evitar duplicados.");
+        }
+
+        const sentAfterTimestamp = Math.floor(Date.now() / 1000) - 5;
+        const ackWaiter = waitForOutgoingMessageAck(targetChatId, text, sentAfterTimestamp);
+        let sentMessage;
+
+        try {
+            sentMessage = await client.sendMessage(targetChatId, text);
+        } catch (error) {
+            // El frame puede fallar después de entregar la orden. Se espera el ACK
+            // antes de decidir si es seguro volver a intentarlo.
+            const acknowledgedMessageId = await ackWaiter.promise;
+
+            if (acknowledgedMessageId)
+                return { messageId: acknowledgedMessageId };
+
+            rememberUncertainOutgoingMessage(uncertainKey, sentAfterTimestamp);
+            throw error;
+        }
+
+        const directMessageId = getSerializedMessageId(sentMessage);
+
+        if (directMessageId && Number(sentMessage?.ack) >= 1) {
+            ackWaiter.cancel();
+            clearUncertainOutgoingMessage(uncertainKey);
+            return { messageId: directMessageId };
+        }
+
+        const acknowledgedMessageId = await ackWaiter.promise;
+
+        if (acknowledgedMessageId) {
+            clearUncertainOutgoingMessage(uncertainKey);
+            return { messageId: acknowledgedMessageId };
+        }
+
+        const recoveredMessageId = await recoverAcknowledgedMessageId(targetChatId, text, sentAfterTimestamp);
+
+        if (recoveredMessageId)
+            return { messageId: recoveredMessageId };
+
+        rememberUncertainOutgoingMessage(uncertainKey, sentAfterTimestamp);
+        return { messageId: "" };
     }
 
     /**
