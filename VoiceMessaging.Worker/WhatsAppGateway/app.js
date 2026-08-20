@@ -726,11 +726,11 @@ setInterval(syncAirbnbEmailAndNotifySecondPhone, airbnbEmailNotificationInterval
 
 app.post("/whatsapp/send", async (req, res) => {
     try {
-        const { chatId, phone, text } = req.body;
+        const { chatId, phone, text, idempotencyKey } = req.body;
 
-        const confirmation = await whatsapp.sendMessage(chatId, phone, text);
+        const confirmation = await whatsapp.sendMessage(chatId, phone, text, idempotencyKey);
 
-        res.json({ success: true, confirmed: true, messageId: confirmation.messageId });
+        res.json({ success: true, confirmed: true, messageId: confirmation.messageId, reusedConfirmation: confirmation.reusedConfirmation === true });
     } catch (error) {
         console.error(error);
         res.status(500).json({ success: false, error: error.message });

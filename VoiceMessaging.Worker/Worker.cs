@@ -115,7 +115,7 @@ public class Worker : BackgroundService
         var nextReadReconciliationAt = DateTime.UtcNow.Add(initialReadReconciliationCompleted ? ReadReconciliationInterval : ReadReconciliationRetryInterval);
         var nextFavoriteMessagesSyncAt = DateTime.UtcNow.Add(initialFavoriteSyncCompleted ? FavoriteMessagesSyncInterval : FavoriteMessagesSyncRetryInterval);
         var nextAirbnbCheckAt = DateTime.UtcNow;
-        var nextErrorLogReportCheckAt = DateTime.UtcNow;
+        var nextErrorLogReportCheckAt = GetNextErrorLogReportCheckAtUtc();
         var nextFailedAlexaConversationSyncAt = DateTime.UtcNow.Add(FailedAlexaConversationSyncInterval);
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -148,10 +148,10 @@ public class Worker : BackgroundService
 
             if (DateTime.UtcNow >= nextErrorLogReportCheckAt)
             {
-                nextErrorLogReportCheckAt = DateTime.UtcNow.Add(ErrorLogReportCheckInterval);
                 await SyncDailyErrorLogsToFirebaseAsync(whatsApp, firebase, stoppingToken);
                 await CleanupOldAlexaWriteTracesAsync(firebase, stoppingToken);
                 await ReportUnreportedErrorLogsAsync(whatsApp, firebase, stoppingToken);
+                nextErrorLogReportCheckAt = GetNextErrorLogReportCheckAtUtc();
             }
 
             if (DateTime.UtcNow >= nextFailedAlexaConversationSyncAt)
@@ -433,6 +433,7 @@ public class Worker : BackgroundService
 
             if (lastReportAt.HasValue && AppClock.ToLocalTime(lastReportAt.Value).Date == today)
             {
+                _lastErrorLogReportAt = lastReportAt.Value.ToUniversalTime();
                 await SaveErrorLogReportStatusAsync(firebase, "already_reported_today", $"El último reporte confirmado fue {lastReportAt.Value:O}.", stoppingToken, lastReportAt);
                 return;
             }
@@ -487,7 +488,8 @@ public class Worker : BackgroundService
                     return;
                 }
 
-                var confirmationId = await whatsApp.SendMessageAsync(_user.SupportPhone, report, stoppingToken);
+                var reportIdempotencyKey = $"daily-error-report:{_user.Phone}:{AppClock.Now:yyyy-MM-dd}";
+                var confirmationId = await whatsApp.SendMessageAsync(_user.SupportPhone, report, reportIdempotencyKey, stoppingToken);
                 reportSent = true;
                 _logger.LogInformation("Reporte diario de errores confirmado por WhatsApp con el identificador {messageId}.", confirmationId);
             }
@@ -537,6 +539,15 @@ public class Worker : BackgroundService
             await SaveErrorLogReportStatusAsync(firebase, "failed", ex.Message, stoppingToken);
             await RegisterWorkerLogAsync("error", "No fue posible enviar el reporte diario de errores por correo ni por WhatsApp.", ex.ToString(), stoppingToken);
         }
+    }
+
+    private DateTime GetNextErrorLogReportCheckAtUtc()
+    {
+        if (!_lastErrorLogReportAt.HasValue || AppClock.ToLocalTime(_lastErrorLogReportAt.Value).Date != AppClock.Now.Date)
+            return DateTime.UtcNow.Add(ErrorLogReportCheckInterval);
+
+        var nextLocalCheck = AppClock.Now.Date.AddDays(1).AddMinutes(5);
+        return DateTime.UtcNow.Add(nextLocalCheck - AppClock.Now);
     }
 
     private static async Task<DateTime?> GetLocalLastErrorLogReportAtAsync(CancellationToken stoppingToken)

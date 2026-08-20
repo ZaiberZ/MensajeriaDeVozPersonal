@@ -114,11 +114,12 @@ public class FirebaseService
         response.EnsureSuccessStatusCode();
     }
 
-    public async Task RegisterLastSentMessageAsync(ReplyMessageDto reply, DateTime sentAt, CancellationToken cancellationToken = default)
+    public async Task RegisterLastSentMessageAsync(ReplyMessageDto reply, string confirmedMessageId, DateTime confirmedAt, CancellationToken cancellationToken = default)
     {
         var payload = new
         {
-            messageId = reply.MessageId,
+            messageId = confirmedMessageId,
+            replyToMessageId = reply.MessageId,
             replyId = reply.Id,
             chatId = reply.ChatId,
             phone = reply.Phone,
@@ -128,7 +129,16 @@ public class FirebaseService
             account = reply.Account,
             source = reply.Source,
             text = reply.Text,
-            sentAt
+            sentAt = confirmedAt,
+            confirmation = new
+            {
+                status = "acknowledged",
+                confirmedAt,
+                confirmedBy = string.Equals(reply.Source, "WhatsApp", StringComparison.OrdinalIgnoreCase) ? "whatsapp_message_ack" : "provider_response",
+                minimumAck = string.Equals(reply.Source, "WhatsApp", StringComparison.OrdinalIgnoreCase) ? 1 : (int?)null,
+                ackMeaning = string.Equals(reply.Source, "WhatsApp", StringComparison.OrdinalIgnoreCase) ? "server_received" : "provider_accepted",
+                messageId = confirmedMessageId
+            }
         };
         var json = JsonSerializer.Serialize(payload, _jsonOptions);
         var content = new StringContent(json, Encoding.UTF8, "application/json");

@@ -7,6 +7,7 @@ const { Message } = require("whatsapp-web.js");
 
 const dataRoot = process.env.VOICE_MESSAGING_DATA_DIR || process.env.PROGRAMDATA || process.env.LOCALAPPDATA || os.tmpdir();
 const uncertainOutgoingFilePath = path.join(dataRoot, "VoiceMessaging", "uncertain-outgoing-messages.json");
+const confirmedOutgoingFilePath = path.join(dataRoot, "VoiceMessaging", "confirmed-outgoing-messages.json");
 
 function loadUncertainOutgoingMessages() {
     try {
@@ -23,6 +24,23 @@ function loadUncertainOutgoingMessages() {
 function saveUncertainOutgoingMessages(items) {
     fs.mkdirSync(path.dirname(uncertainOutgoingFilePath), { recursive: true });
     fs.writeFileSync(uncertainOutgoingFilePath, JSON.stringify([...items.entries()], null, 2), "utf8");
+}
+
+function loadConfirmedOutgoingMessages() {
+    try {
+        if (!fs.existsSync(confirmedOutgoingFilePath))
+            return new Map();
+
+        const items = JSON.parse(fs.readFileSync(confirmedOutgoingFilePath, "utf8"));
+        return new Map(Array.isArray(items) ? items.filter(item => Array.isArray(item) && item.length === 2) : []);
+    } catch {
+        return new Map();
+    }
+}
+
+function saveConfirmedOutgoingMessages(items) {
+    fs.mkdirSync(path.dirname(confirmedOutgoingFilePath), { recursive: true });
+    fs.writeFileSync(confirmedOutgoingFilePath, JSON.stringify([...items.entries()], null, 2), "utf8");
 }
 
 /**
@@ -70,7 +88,7 @@ function saveUncertainOutgoingMessages(items) {
  * @property {(chatId: string) => Promise<void>} markChatAsRead
  * @property {(phone: string) => string} normalizePhone
  * @property {() => Promise<void>} recoverUnreadMessages
- * @property {(chatId: string|null, phone: string, text: string) => Promise<void>} sendMessage
+ * @property {(chatId: string|null, phone: string, text: string, idempotencyKey?: string) => Promise<void>} sendMessage
  */
 
 /**
@@ -98,6 +116,7 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
     let pendingMessages = [];
     const pendingMessageIds = new Set();
     const uncertainOutgoingMessages = loadUncertainOutgoingMessages();
+    const confirmedOutgoingMessages = loadConfirmedOutgoingMessages();
 
     function createUncertainOutgoingKey(chatId, text) {
         const textHash = crypto.createHash("sha256").update(text, "utf8").digest("hex");
@@ -112,6 +131,21 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
     function rememberUncertainOutgoingMessage(key, sentAfterTimestamp) {
         uncertainOutgoingMessages.set(key, { sentAfterTimestamp });
         saveUncertainOutgoingMessages(uncertainOutgoingMessages);
+    }
+
+    function createConfirmedOutgoingKey(idempotencyKey) {
+        if (!idempotencyKey)
+            return "";
+
+        return crypto.createHash("sha256").update(String(idempotencyKey), "utf8").digest("hex");
+    }
+
+    function rememberConfirmedOutgoingMessage(key, messageId) {
+        if (!key)
+            return;
+
+        confirmedOutgoingMessages.set(key, { messageId, confirmedAt: new Date().toISOString() });
+        saveConfirmedOutgoingMessages(confirmedOutgoingMessages);
     }
 
     function isChannelChatId(chatId) {
@@ -804,7 +838,7 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         return "";
     }
 
-    async function sendMessageOnce(chatId, phone, text) {
+    async function sendMessageOnce(chatId, phone, text, idempotencyKey = "") {
         if (!runtime.connected)
             throw new Error("WhatsApp no está conectado.");
 
@@ -821,6 +855,19 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         }
 
         const uncertainKey = createUncertainOutgoingKey(targetChatId, text);
+        const confirmedKey = createConfirmedOutgoingKey(idempotencyKey);
+        const previousConfirmation = confirmedKey ? confirmedOutgoingMessages.get(confirmedKey) : null;
+
+        if (previousConfirmation) {
+            const confirmedAt = Date.parse(previousConfirmation.confirmedAt || "");
+
+            if (Number.isFinite(confirmedAt) && confirmedAt >= Date.now() - 15 * 24 * 60 * 60 * 1000)
+                return { messageId: previousConfirmation.messageId, reusedConfirmation: true };
+
+            confirmedOutgoingMessages.delete(confirmedKey);
+            saveConfirmedOutgoingMessages(confirmedOutgoingMessages);
+        }
+
         let previousUncertainSend = uncertainOutgoingMessages.get(uncertainKey);
 
         if (previousUncertainSend && Number(previousUncertainSend.sentAfterTimestamp || 0) < Math.floor(Date.now() / 1000) - 15 * 24 * 60 * 60) {
@@ -833,6 +880,7 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
 
             if (recoveredMessageId) {
                 clearUncertainOutgoingMessage(uncertainKey);
+                rememberConfirmedOutgoingMessage(confirmedKey, recoveredMessageId);
                 return { messageId: recoveredMessageId };
             }
 
@@ -850,8 +898,10 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
             // antes de decidir si es seguro volver a intentarlo.
             const acknowledgedMessageId = await ackWaiter.promise;
 
-            if (acknowledgedMessageId)
+            if (acknowledgedMessageId) {
+                rememberConfirmedOutgoingMessage(confirmedKey, acknowledgedMessageId);
                 return { messageId: acknowledgedMessageId };
+            }
 
             rememberUncertainOutgoingMessage(uncertainKey, sentAfterTimestamp);
             throw error;
@@ -862,6 +912,7 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
         if (directMessageId && Number(sentMessage?.ack) >= 1) {
             ackWaiter.cancel();
             clearUncertainOutgoingMessage(uncertainKey);
+            rememberConfirmedOutgoingMessage(confirmedKey, directMessageId);
             return { messageId: directMessageId };
         }
 
@@ -869,13 +920,16 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
 
         if (acknowledgedMessageId) {
             clearUncertainOutgoingMessage(uncertainKey);
+            rememberConfirmedOutgoingMessage(confirmedKey, acknowledgedMessageId);
             return { messageId: acknowledgedMessageId };
         }
 
         const recoveredMessageId = await recoverAcknowledgedMessageId(targetChatId, text, sentAfterTimestamp);
 
-        if (recoveredMessageId)
+        if (recoveredMessageId) {
+            rememberConfirmedOutgoingMessage(confirmedKey, recoveredMessageId);
             return { messageId: recoveredMessageId };
+        }
 
         rememberUncertainOutgoingMessage(uncertainKey, sentAfterTimestamp);
         return { messageId: "" };
@@ -888,10 +942,10 @@ function createWhatsAppMessages({ client, diagnostics, recovery, runtime }) {
      * @param {string} text
      * @returns {Promise<void>}
      */
-    async function sendMessage(chatId, phone, text) {
+    async function sendMessage(chatId, phone, text, idempotencyKey = "") {
         for (let attempt = 1; attempt <= sendMaxAttempts; attempt++) {
             try {
-                const confirmation = await sendMessageOnce(chatId, phone, text);
+                const confirmation = await sendMessageOnce(chatId, phone, text, idempotencyKey);
 
                 if (!confirmation.messageId)
                     throw new Error("WhatsApp Web no devolvió un identificador que confirme el envío.");

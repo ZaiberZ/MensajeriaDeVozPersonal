@@ -34,9 +34,9 @@ public class WhatsAppService
         }
     }
 
-    public async Task<string> SendMessageAsync(string phone, string text, CancellationToken cancellationToken = default)
+    public async Task<string> SendMessageAsync(string phone, string text, string idempotencyKey, CancellationToken cancellationToken = default)
     {
-        var request = new { phone, text };
+        var request = new { phone, text, idempotencyKey };
         var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request, cancellationToken);
 
         response.EnsureSuccessStatusCode();
@@ -202,7 +202,8 @@ public class WhatsAppService
             account = reply.Account,
             chatId = reply.ChatId,
             phone = reply.Phone,
-            text = reply.Text
+            text = reply.Text,
+            idempotencyKey = $"pending-reply:{reply.Id}"
         };
 
         var response = await _httpClient.PostAsJsonAsync("/whatsapp/send", request, cancellationToken);

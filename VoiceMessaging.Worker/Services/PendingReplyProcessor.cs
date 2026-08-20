@@ -36,6 +36,7 @@ public class PendingReplyProcessor
                 try
                 {
                     var sent = false;
+                    var confirmationId = "";
 
                     if (string.Equals(reply.Source, "AirbnbEmail", StringComparison.OrdinalIgnoreCase))
                     {
@@ -47,6 +48,7 @@ public class PendingReplyProcessor
                     else if (string.Equals(reply.Source, "Airbnb", StringComparison.OrdinalIgnoreCase))
                     {
                         await _airbnbProcessor.SendReplyAsync(reply, stoppingToken);
+                        confirmationId = $"airbnb-{reply.Id}";
                         sent = true;
                     }
                     else if (string.IsNullOrWhiteSpace(reply.Phone))
@@ -67,7 +69,7 @@ public class PendingReplyProcessor
                         }
 
                         // Firebase conserva la respuesta hasta que el gateway devuelve el id real del mensaje.
-                        var confirmationId = await _whatsAppProcessor.SendReplyAsync(reply, stoppingToken);
+                        confirmationId = await _whatsAppProcessor.SendReplyAsync(reply, stoppingToken);
                         sent = true;
                         _logger.LogInformation("WhatsApp confirmó la respuesta pendiente {replyId} con el mensaje {messageId}.", reply.Id, confirmationId);
                     }
@@ -78,7 +80,7 @@ public class PendingReplyProcessor
                         continue;
                     }
 
-                    await _firebase.RegisterLastSentMessageAsync(reply, AppClock.Now, stoppingToken);
+                    await _firebase.RegisterLastSentMessageAsync(reply, confirmationId, AppClock.Now, stoppingToken);
                     await _firebase.DeleteReplyAsync(reply.Id);
 
                     // La confirmación real de entrega permite retirar el diagnóstico de esta sesión de Alexa.
