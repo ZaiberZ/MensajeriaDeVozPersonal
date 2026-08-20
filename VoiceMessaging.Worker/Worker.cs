@@ -609,12 +609,14 @@ public class Worker : BackgroundService
 
         try
         {
-            // Los seguimientos incompletos se conservan solo durante quince días.
-            var cutoff = now.AddDays(-15);
-            var deletedCount = await firebase.DeleteAlexaWriteTracesOlderThanAsync(cutoff, stoppingToken);
-            var deletedDiagnosticLogs = await firebase.DeleteDiagnosticLogsOlderThanAsync(cutoff, stoppingToken);
+            // Los intentos fallidos conservan la conversación quince días; los envíos confirmados, sólo tres.
+            var failedConversationCutoff = now.AddDays(-15);
+            var confirmedDeliveryCutoff = now.AddDays(-3);
+            var deletedCount = await firebase.DeleteAlexaWriteTracesOlderThanAsync(failedConversationCutoff, stoppingToken);
+            var deletedReceiptCount = await firebase.DeleteAlexaDeliveryReceiptsOlderThanAsync(confirmedDeliveryCutoff, stoppingToken);
+            var deletedDiagnosticLogs = await firebase.DeleteDiagnosticLogsOlderThanAsync(failedConversationCutoff, stoppingToken);
             _lastAlexaWriteTraceCleanupAt = now;
-            _logger.LogInformation("Limpieza de diagnósticos de Alexa completada. Seguimientos eliminados: {traceCount}; logs eliminados: {logCount}.", deletedCount, deletedDiagnosticLogs);
+            _logger.LogInformation("Limpieza de diagnósticos de Alexa completada. Seguimientos eliminados: {traceCount}; comprobantes eliminados: {receiptCount}; logs eliminados: {logCount}.", deletedCount, deletedReceiptCount, deletedDiagnosticLogs);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {

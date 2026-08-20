@@ -40,6 +40,7 @@ public class FirebaseService
     private string ConfigurationPath => $"{UserPath}/configuracion";
     private string DiagnosticsPath => $"{UserPath}/diagnosticos/logs_error";
     private string AlexaWriteTracesPath => $"{UserPath}/diagnosticos/intentos_envio_alexa";
+    private string AlexaDeliveryReceiptsPath => $"{UserPath}/diagnosticos/envios_confirmados_alexa";
     private string DiagnosticLogsPath => $"{UserPath}/diagnosticos/logs";
 
     public async Task<bool> HasPendingMessagesAsync()
@@ -291,6 +292,16 @@ public class FirebaseService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task SaveAlexaDeliveryReceiptAsync(string traceId, AlexaDeliveryReceiptDto receipt, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(traceId))
+            return;
+
+        var content = new StringContent(JsonSerializer.Serialize(receipt, _jsonOptions), Encoding.UTF8, "application/json");
+        var response = await _httpClient.PutAsync($"{AlexaDeliveryReceiptsPath}/{traceId}.json", content, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<Dictionary<string, AlexaWriteTraceDto>> GetAlexaWriteTracesAsync(CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetAsync($"{AlexaWriteTracesPath}.json", cancellationToken);
@@ -354,6 +365,31 @@ public class FirebaseService
 
         foreach (var traceId in expiredIds)
             await DeleteAlexaWriteTraceAsync(traceId, cancellationToken);
+
+        return expiredIds.Count;
+    }
+
+    public async Task<int> DeleteAlexaDeliveryReceiptsOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"{AlexaDeliveryReceiptsPath}.json", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return 0;
+
+        var receipts = JsonSerializer.Deserialize<Dictionary<string, AlexaDeliveryReceiptDto>>(json, _jsonOptions);
+
+        if (receipts == null || receipts.Count == 0)
+            return 0;
+
+        var expiredIds = receipts.Where(item => item.Value != null && item.Value.ConfirmedAt < cutoff).Select(item => item.Key).ToList();
+
+        foreach (var receiptId in expiredIds)
+        {
+            var deleteResponse = await _httpClient.DeleteAsync($"{AlexaDeliveryReceiptsPath}/{receiptId}.json", cancellationToken);
+            deleteResponse.EnsureSuccessStatusCode();
+        }
 
         return expiredIds.Count;
     }

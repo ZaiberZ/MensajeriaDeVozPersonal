@@ -19,3 +19,30 @@ public class AlexaWriteTraceDto
     [JsonPropertyName("turns")]
     public List<string> Turns { get; set; } = [];
 }
+
+public class AlexaDeliveryReceiptDto
+{
+    [JsonPropertyName("operation")]
+    public string Operation { get; set; } = "";
+
+    [JsonPropertyName("recipient")]
+    public string Recipient { get; set; } = "";
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = "";
+
+    [JsonPropertyName("whatsAppMessageId")]
+    public string WhatsAppMessageId { get; set; } = "";
+
+    [JsonPropertyName("confirmedAt")]
+    public DateTime ConfirmedAt { get; set; }
+
+    [JsonPropertyName("minimumAck")]
+    public int MinimumAck { get; set; } = 1;
+
+    [JsonPropertyName("ackMeaning")]
+    public string AckMeaning { get; set; } = "server_received";
+
+    [JsonPropertyName("replyId")]
+    public string ReplyId { get; set; } = "";
+}
